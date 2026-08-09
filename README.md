@@ -37,10 +37,11 @@ outside this repository; set `NGPS_WORK_ROOT` to their parent work directory.
 2. Inventory science and standards with `scripts/ngps_inventory_standards.py`.
 3. Flux calibrate using `scripts/ngps_flux_calibrate.py`.
 4. Inspect results using `scripts/ngps_audit_flux.py`.
-5. Use `scripts/ngps_manual_extract.py` for an optional, isolated manual run.
+5. Apply optional manual-extraction positions in a copied PypeIt setup.
 
-Every wrapper defaults to dry-run or refuses to overwrite. Manual extraction
-copies a setup, updates only the copy, and can select at most three traces.
+Every wrapper defaults to dry-run or refuses to overwrite. Any manual
+extraction must copy a setup and update only the copy; limit a selection session
+to at most three traces.
 
 See [the reduction guide](docs/NGPS_REDUCTION_GUIDE.md) and
 [maintenance](docs/MAINTENANCE.md).
@@ -51,4 +52,3 @@ PypeIt and `ngps_pipeline` remain independent upstream projects. Their code is
 not vendored here; installation retains their respective licenses. This
 repository includes our wrapper code only. Upstream URLs, commits, licenses, and
 citation guidance are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-

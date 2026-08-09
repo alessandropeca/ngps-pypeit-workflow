@@ -34,14 +34,14 @@ products. The default behavior avoids destructive replacement.
 ## Manual extraction
 
 Inspect a reduced `spec2d` product first. If manual extraction is warranted,
-make a separate setup copy; never change the automatic setup. The local
-interactive helper accepts at most three traces (single, dual, or rare triplet)
-and asks before writing anything. Record the project tag and selected positions
-with the resulting product.
+make a separate setup copy; never change the automatic setup. Use the project's
+manual-selection procedure to select at most three traces (single, dual, or
+rare triplet), show the resulting manual string, and ask before writing the
+copied `.pypeit` file. Record the project tag and selected positions with the
+resulting product.
 
 ## Reproduce a published reduction
 
 Checkout the project tag named in the reduction record, create the matching
 environment from `environment.yml`, run the verifier, then use the same data
 root and commands above. See [maintenance](MAINTENANCE.md) for upgrades.
-
