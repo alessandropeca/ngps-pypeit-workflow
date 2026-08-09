@@ -1,0 +1,22 @@
+# Change this file only through docs/MAINTENANCE.md.
+schema: 1
+validated:
+  label: "NGPS 2026-06-23 baseline"
+  date: "2026-08-09"
+  notes:
+    - "Validated with four-channel NGPS reductions and per-standard flux calibration."
+    - "I/C sensitivity-function QA failures are retried with QA disabled."
+upstreams:
+  pypeit:
+    repository: "https://github.com/cfremling/PypeIt.git"
+    commit: "e9ed85c1a237c49626227f4227e323fc390def4b"
+    ref_at_validation: "develop"
+    license: "BSD-3-Clause"
+  ngps_pipeline:
+    repository: "https://github.com/cfremling/ngps_pipeline.git"
+    commit: "55fa9491eb1683769006118c46b26963bbf33ea2"
+    ref_at_validation: "main"
+    license: "BSD-3-Clause"
+python:
+  version: "3.11"
+

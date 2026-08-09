@@ -1,0 +1,15 @@
+name: ngps-pinned
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - astropy
+  - matplotlib
+  - pyyaml
+  - pytest
+  - pip:
+      - "pypeit @ git+https://github.com/cfremling/PypeIt.git@e9ed85c1a237c49626227f4227e323fc390def4b"
+      - "ngps_pipeline @ git+https://github.com/cfremling/ngps_pipeline.git@55fa9491eb1683769006118c46b26963bbf33ea2"
+

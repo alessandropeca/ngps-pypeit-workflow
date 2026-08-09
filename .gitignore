@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+work/
+raw/
+products/
+*.fits
+*.fits.gz
+*.log
+*.pdf
+*.png
+*.sqlite
+config/local.env
+
