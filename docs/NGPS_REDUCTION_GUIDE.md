@@ -6,10 +6,10 @@ PROJECT BASELINE
 This is the maintained guide for the ngps-pypeit-workflow project.  It uses
 fixed Git commits, never a floating upstream branch.  Before reducing data, set:
 
-    WORKFLOW_ROOT="/Documents/GitHub/ngps-pypeit-workflow"
+    WORKFLOW_ROOT="$HOME/Documents/GitHub/ngps-pypeit-workflow"
 
-The exact versions are recorded in /upstream-lock.yml.  The NGPS
-wrapper is downloaded from Alessandro Peca\x27s maintained fork; the original
+The exact versions are recorded in $WORKFLOW_ROOT/upstream-lock.yml.  The NGPS
+wrapper is downloaded from Alessandro Peca's maintained fork; the original
 Christoffer Fremling repository is retained only as the documented upstream.
 
 
