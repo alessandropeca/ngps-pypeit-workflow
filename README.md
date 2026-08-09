@@ -10,7 +10,7 @@ The validated baseline is the environment used for the 2026-06-23 reduction:
 | Component | Upstream | pinned commit |
 | --- | --- | --- |
 | PypeIt NGPS fork | `cfremling/PypeIt` | `e9ed85c1a237c49626227f4227e323fc390def4b` |
-| NGPS operational wrapper | `cfremling/ngps_pipeline` | `55fa9491eb1683769006118c46b26963bbf33ea2` |
+| NGPS operational wrapper (your fork) | `alessandropeca/ngps_pipeline` | `55fa9491eb1683769006118c46b26963bbf33ea2` |
 
 No command in this repository follows an upstream branch such as `main` or
 `develop`. A later upstream change cannot affect an existing environment until

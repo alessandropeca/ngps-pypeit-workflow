@@ -13,7 +13,8 @@ upstreams:
     ref_at_validation: "develop"
     license: "BSD-3-Clause"
   ngps_pipeline:
-    repository: "https://github.com/cfremling/ngps_pipeline.git"
+    repository: "https://github.com/alessandropeca/ngps_pipeline.git"
+    source_repository: "https://github.com/cfremling/ngps_pipeline.git"
     commit: "55fa9491eb1683769006118c46b26963bbf33ea2"
     ref_at_validation: "main"
     license: "BSD-3-Clause"
