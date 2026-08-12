@@ -39,6 +39,8 @@ outside this repository; set `NGPS_WORK_ROOT` to their parent work directory.
 4. Inspect results using `scripts/ngps_audit_flux.py`.
 5. Inspect and optionally reposition manual extractions with
    \`scripts/ngps_interactive_extract.py\`; it only writes to a copied setup.
+6. Review proposed flux-calibrated exposures before each 1D coadd using
+   \`scripts/ngps_interactive_coadd.py\`; it asks before writing or coadding.
 
 Every wrapper defaults to dry-run or refuses to overwrite. Any manual
 extraction must copy a setup and update only the copy; limit a selection session
