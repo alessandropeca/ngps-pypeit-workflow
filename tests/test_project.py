@@ -17,3 +17,6 @@ def test_wrappers_compile():
     for script in (ROOT / "scripts").glob("*.py"):
         py_compile.compile(str(script), doraise=True)
 
+
+def test_interactive_extraction_tool_is_present():
+    assert (ROOT / "scripts" / "ngps_interactive_extract.py").is_file()
