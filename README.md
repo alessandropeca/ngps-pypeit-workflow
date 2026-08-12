@@ -9,6 +9,11 @@ Every upstream revision is a full Git commit recorded in
 [`upstream-lock.yml`](upstream-lock.yml). Nothing in this workflow follows a
 floating upstream branch such as `main` or `develop`.
 
+The reduction engine is [PypeIt](https://github.com/pypeit/PypeIt), whose
+documentation is at [pypeit.readthedocs.io](https://pypeit.readthedocs.io/).
+This workflow installs the separately listed NGPS-enabled PypeIt fork below,
+because that is the revision validated for this instrument and workflow.
+
 | Component | Pinned source | Commit |
 | --- | --- | --- |
 | PypeIt NGPS fork | [`cfremling/PypeIt`](https://github.com/cfremling/PypeIt) | `e9ed85c1a237c49626227f4227e323fc390def4b` |
