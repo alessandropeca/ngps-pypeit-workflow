@@ -771,13 +771,53 @@ tracks the required scripts. After the extracted spectra are present, run:
     python "$WORKFLOW_ROOT/scripts/ngps_flux_calibrate.py" 20260623 --run
     python "$WORKFLOW_ROOT/scripts/ngps_audit_flux.py" 20260623
 
-The first flux-calibration invocation is a planning pass; `--run` performs the
-writes. The scripts preserve unfluxed inputs by working in Fluxed/ directories.
-For the known I/C sensitivity-function QA-only failure, the tracked script
-retries without QA so that the valid sensitivity-function FITS product is saved.
+The first flux-calibration invocation identifies the proposed associations and
+writes the PypeIt configuration files; only `--run` creates sensitivity
+functions and applies flux calibration. The scripts preserve unfluxed inputs by
+working in Fluxed/ directories. For the known I/C sensitivity-function QA-only
+failure, the tracked script retries without QA so that the valid
+sensitivity-function FITS product is saved.
 
 ===============================================================================
-23. RECORD THE WORKFLOW VERSION
+23. INTERACTIVE REVIEW BEFORE COADDING
+===============================================================================
+
+Never coadd all three NGPS image-slicer traces automatically. The central slicer
+trace is the default point-source candidate; a spatially extended or blended
+source must instead be checked in the 2D frame and, where needed, re-extracted
+with the interactive extraction tool before it is coadded.
+
+For one target, channel, and configuration, first inspect the proposed inputs:
+
+    python "$WORKFLOW_ROOT/scripts/ngps_interactive_coadd.py" 20260623 \
+        --target MGC+04-48-002 \
+        --channel r \
+        --setup p200_ngps_r_B \
+        --summary
+
+Then run the interactive review:
+
+    python "$WORKFLOW_ROOT/scripts/ngps_interactive_coadd.py" 20260623 \
+        --target MGC+04-48-002 \
+        --channel r \
+        --setup p200_ngps_r_B
+
+The display contains an overlay and one panel per exposure. Untick any exposure
+that is unsuitable (for example, an extraction issue, a transient artifact, or
+bad observing conditions), then click **Accept selection** or **Cancel**. After
+acceptance, the script asks separately whether to write a new coadd setup and
+whether to run it. It never alters the individual Fluxed spectra or overwrites a
+previous coadd directory.
+
+The generated setup, selected-file record, and coadd product are kept in:
+
+    $NGPS_WORK_ROOT/20260623/Coadds/<target>_<channel>_<setup>/
+
+Telluric correction and U/G/R/I merging should be reviewed in the same way;
+they are not performed by this coadd command.
+
+===============================================================================
+24. RECORD THE WORKFLOW VERSION
 ===============================================================================
 
 For each reduction, record the Git commit or release tag of this workflow
