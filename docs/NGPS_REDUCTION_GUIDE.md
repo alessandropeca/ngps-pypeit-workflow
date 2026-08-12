@@ -26,6 +26,10 @@ Repositories:
     ~/Software/PypeIt
     ~/Software/ngps_pipeline
 
+Both are required and are installed separately. PypeIt is the reduction engine
+and provides the NGPS instrument support; ngps_pipeline is the operational
+wrapper that calls PypeIt. The wrapper does not include PypeIt.
+
 Conda environment:
     ngps
 

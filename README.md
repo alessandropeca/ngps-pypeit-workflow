@@ -33,7 +33,14 @@ repository until those two reviewed stages are implemented and validated.
 ## One-time installation
 
 Run these steps once on a new computer. They create a dedicated environment and
-two clean, pinned upstream checkouts. Do not install from a branch name.
+install **two separate programs** from two clean, pinned upstream checkouts:
+
+1. **PypeIt** — the spectroscopic reduction engine, including NGPS instrument
+   support.
+2. **`ngps_pipeline`** — the operational NGPS wrapper that uses PypeIt.
+
+`ngps_pipeline` does not contain PypeIt. Both `python -m pip install -e`
+commands below are required. Do not install either program from a branch name.
 
 ```bash
 git clone https://github.com/alessandropeca/ngps-pypeit-workflow.git \
@@ -224,9 +231,6 @@ pin candidate commits, create a new environment, rerun the smoke test, review
 the differences, and tag the accepted workflow revision. Never edit PypeIt or
 `ngps_pipeline` inside a working reduction without recording that change.
 
-## Attribution and licensing
-
-PypeIt and `ngps_pipeline` remain independent upstream projects. Their code is
-not vendored here; installation retains their respective licenses. See
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for sources, licenses, and
-citation guidance.
+PypeIt and `ngps_pipeline` remain independent upstream projects. Their source
+repositories, licenses, and pinned revisions are recorded in
+[`upstream-lock.yml`](upstream-lock.yml).
