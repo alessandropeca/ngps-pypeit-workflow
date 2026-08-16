@@ -156,12 +156,12 @@ def selections_for_offsets(frame: Frame, offsets: list[float]) -> list[Selection
 
 def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame], interactive: bool, maximum: int = 3) -> tuple[str, list[float]]:
     """Save a dashboard.  In interactive mode return the chosen extraction decision."""
-    figure = plt.figure(figsize=(17, 11))
-    grid = GridSpec(3, 3, figure=figure, width_ratios=(1, 1, 1.05), height_ratios=(1, 1, .75))
-    axes = {"u": figure.add_subplot(grid[0, 0]), "g": figure.add_subplot(grid[0, 1]), "r": figure.add_subplot(grid[1, 0]), "i": figure.add_subplot(grid[1, 1])}
-    profile_axis = figure.add_subplot(grid[:2, 2])
-    spectrum_axis = figure.add_subplot(grid[2, :2])
-    control_axis = figure.add_subplot(grid[2, 2])
+    figure = plt.figure(figsize=(22, 8.5))
+    grid = GridSpec(2, 5, figure=figure, width_ratios=(1, 1, 1, 1, 1.08), height_ratios=(1, .7))
+    axes = {channel: figure.add_subplot(grid[0, index]) for index, channel in enumerate(CHANNELS)}
+    profile_axis = figure.add_subplot(grid[0, 4])
+    spectrum_axis = figure.add_subplot(grid[1, :4])
+    control_axis = figure.add_subplot(grid[1, 4])
     control_axis.axis("off")
     figure.suptitle(f"{target}  |  exposure {exposure}  |  NGPS extraction review", fontsize=15)
     selected: list[float] = []
@@ -177,7 +177,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         image, offsets, _ = aligned_image(frame)
         finite = image[np.isfinite(image)]
         limits = np.percentile(finite, (5, 99)) if finite.size else (-1, 1)
-        axis.imshow(image, origin="lower", aspect="auto", cmap="gray", vmin=limits[0], vmax=limits[1], extent=(offsets[0], offsets[-1], 0, image.shape[0] - 1))
+        axis.imshow(image, origin="lower", aspect="auto", cmap="viridis", vmin=limits[0], vmax=limits[1], extent=(offsets[0], offsets[-1], 0, image.shape[0] - 1))
         axis.axvline(0, color="gold", lw=1.2, label="PypeIt automatic centre")
         axis.set_title(f"{channel.upper()}: aligned three-slicer diagnostic")
         axis.set_xlabel("Offset from automatic trace (pixels)")
@@ -185,7 +185,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         profile = np.nanmedian(image, axis=0)
         scale = np.nanmax(np.abs(profile))
         if np.isfinite(scale) and scale > 0:
-            profile_axis.plot(profile / scale, offsets, color=COLOURS[channel], label=channel.upper())
+            profile_axis.plot(offsets, profile / scale, color=COLOURS[channel], label=channel.upper())
         spectrum = quicklook_spectrum(frame)
         if spectrum is not None:
             wave, flux = spectrum
@@ -194,8 +194,8 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
 
     profile_axis.axvline(0, color="0.7", lw=.8)
     profile_axis.set_title("Spatial profiles (one colour per channel)")
-    profile_axis.set_xlabel("Normalised sky-subtracted profile")
-    profile_axis.set_ylabel("Offset from automatic trace (pixels)")
+    profile_axis.set_xlabel("Offset from automatic trace (pixels)")
+    profile_axis.set_ylabel("Normalised sky-subtracted profile")
     profile_axis.legend(loc="best")
     spectrum_axis.set_title("Quick-look central-slicer 1D spectra (not a coadd)")
     spectrum_axis.set_xlabel("Vacuum wavelength (Å)")
@@ -211,7 +211,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             for axis in axes.values():
                 selection_artists.append(axis.axvspan(offset - 2, offset + 2, color="tab:red", alpha=.24))
                 selection_artists.append(axis.axvline(offset, color="tab:red", lw=.9))
-            selection_artists.append(profile_axis.axhline(offset, color="tab:red", lw=.9, alpha=.8))
+            selection_artists.append(profile_axis.axvline(offset, color="tab:red", lw=.9, alpha=.8))
         figure.canvas.draw_idle()
 
     def click(event) -> None:
@@ -257,14 +257,14 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             ("Add another component", add_component), ("Accept manual", accept_manual), ("Cancel", cancel),
         ]
         for index, (label, callback) in enumerate(button_specs):
-            button_axis = figure.add_axes((.72, .12 + (.055 * (4 - index)), .21, .04))
+            button_axis = figure.add_axes((.835, .13 + (.06 * (4 - index)), .135, .042))
             button = Button(button_axis, label)
             button.on_clicked(callback)
             button_widgets.append(button)
     else:
         control_axis.text(.5, .45, "Automatic run\n\nThis PDF records PypeIt's automatic extraction.\nUse ngps_manual_target_extractions.py\nto revise it.", ha="center", va="center", wrap=True, transform=control_axis.transAxes)
     figure.canvas.mpl_connect("button_press_event", click)
-    figure.subplots_adjust(left=.06, right=.98, bottom=.08, top=.88, wspace=.17, hspace=.32)
+    figure.subplots_adjust(left=.045, right=.985, bottom=.09, top=.86, wspace=.22, hspace=.36)
     output = audit_path(root, target, exposure)
     figure.savefig(output)
     print(f"Saved review PDF: {output}")
