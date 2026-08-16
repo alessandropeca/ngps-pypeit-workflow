@@ -69,21 +69,31 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_reduce_all_configs.py "$DATE" --auto
    ```
 
-   The PDFs are in `$NIGHT/ExtractionQA/<target>/`. Each one has four aligned
-   U/G/R/I 2D panels, coloured spatial profiles, and a quick-look 1D panel.
+   The PDFs to inspect are in `$NIGHT/ExtractionQA/<target>/` (for this night:
+   `~/ngps_data/work/20260623/ExtractionQA/`). On macOS, open that folder with:
+
+   ```bash
+   open "$NIGHT/ExtractionQA"
+   ```
+
+   These PDFs are derived science-review products, so they stay alongside the
+   night's data and are deliberately not committed to GitHub. Each one has four
+   aligned U/G/R/I 2D panels, coloured spatial profiles, and a quick-look 1D
+   panel.
    The aligned 2D panels are for checking the same source in the three slicers;
    they are not a science coadd.
 
 3. To revise one already-reduced target whose automatic PDF does not look
    right, open the same dashboard interactively. This is a **single-target,
    single-exposure review command**; use `ngps_reduce_all_configs.py` for a
-   whole night.
+   whole night. `--auto` retains existing automatic extractions and only writes
+   the review PDFs; it does not overwrite a previous extraction.
    **Manual extraction** enables a click in a channel
    panel and links the position across U/G/R/I. **Adjust this channel only**
    makes the next click move only the panel selected. The saved PDF is
-   replaced with your marked version. The original automatic PypeIt products
-   are preserved; accepting a manual choice writes a copied manual PypeIt
-   setup, not replacement detector products.
+   replaced with your marked version. An accepted choice runs an isolated
+   one-exposure PypeIt setup and replaces only that exposure's derived
+   `spec1d/spec2d` products in the baseline setup.
    Manual positions inherit PypeIt's measured FWHM separately for every
    channel/slicer; the click changes position, not extraction width.
    **Return to automatic** clears the manual aperture and restores the original
