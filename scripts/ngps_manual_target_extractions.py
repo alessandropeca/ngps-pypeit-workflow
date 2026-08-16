@@ -251,6 +251,26 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         "channel_only": False,
         "focus_channel": None,
     }
+    mode_label = figure.text(
+        .9025, .465, "AUTO MODE", ha="center", va="center", fontsize=10,
+        fontweight="bold", color="#1D5F34",
+        bbox={"boxstyle": "round,pad=.45", "facecolor": "#D7F2DF", "edgecolor": "#92C9A5"},
+    )
+
+    def update_mode_label() -> None:
+        """Make the saved review unambiguous about its extraction state."""
+        if state["manual"]:
+            mode_label.set_text("MANUAL MODE")
+            mode_label.set_color("#8A4B00")
+            mode_label.set_bbox({
+                "boxstyle": "round,pad=.45", "facecolor": "#FFE6B3", "edgecolor": "#E8B65D"
+            })
+        else:
+            mode_label.set_text("AUTO MODE")
+            mode_label.set_color("#1D5F34")
+            mode_label.set_bbox({
+                "boxstyle": "round,pad=.45", "facecolor": "#D7F2DF", "edgecolor": "#92C9A5"
+            })
 
     for channel in CHANNELS:
         axis = axes[channel]
@@ -348,6 +368,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             else "Spatial profiles\none colour per channel"
         )
         redraw_spectra(selected if selected else None)
+        update_mode_label()
         figure.canvas.draw_idle()
 
     def click(event) -> None:
@@ -368,10 +389,14 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     def begin_manual(event) -> None:
         state["manual"] = True
         state["channel_only"] = False
+        update_mode_label()
+        figure.canvas.draw_idle()
 
     def adjust_this_channel(event) -> None:
         state["manual"] = True
         state["channel_only"] = True
+        update_mode_label()
+        figure.canvas.draw_idle()
         print("Click a channel panel to move only that channel's manual aperture.")
 
     def return_to_automatic(event) -> None:
