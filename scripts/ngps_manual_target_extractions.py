@@ -172,7 +172,7 @@ def manual_quicklook_spectrum(
 
 
 def display_quality_mask(flux: np.ndarray) -> np.ndarray:
-    """Mask only implausible endpoint outliers in a display-only spectrum."""
+    """Mask implausible endpoint outliers for every channel's display spectrum."""
     mask = np.isfinite(flux)
     edge = max(5, int(.01 * len(flux)))
     core = flux[edge:-edge][np.isfinite(flux[edge:-edge])]
@@ -336,6 +336,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     def return_to_automatic(event) -> None:
         state["manual"] = False
         state["channel_only"] = False
+        state["focus_channel"] = None
         selected.clear()
         redraw_selections()
 
