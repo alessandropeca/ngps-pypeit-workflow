@@ -128,19 +128,11 @@ def aligned_image(frame: Frame, half_width: int = 38) -> tuple[np.ndarray, np.nd
     return combined, offsets, automatic
 
 
-def quicklook_spec1d(frame: Frame) -> tuple[Path, bool]:
-    """Prefer the calibrated copy once flux calibration has been run."""
-    science = frame.spec2d.parent / frame.spec2d.name.replace("spec2d_", "spec1d_", 1)
-    fluxed = frame.spec2d.parent.parent / "Fluxed" / science.name
-    return (fluxed, True) if fluxed.is_file() else (science, False)
-
-
-def quicklook_is_fluxed(frame: Frame) -> bool:
-    return quicklook_spec1d(frame)[1]
-
-
 def quicklook_spectrum(frame: Frame) -> tuple[np.ndarray, np.ndarray] | None:
-    spec1d, _ = quicklook_spec1d(frame)
+    # Extraction review is intentionally before flux calibration.  Always use
+    # the original Science product so the display matches the extraction that
+    # the user is accepting or revising.
+    spec1d = frame.spec2d.parent / frame.spec2d.name.replace("spec2d_", "spec1d_", 1)
     if not spec1d.is_file():
         return None
     with fits.open(spec1d, memmap=False) as hdul:
@@ -271,8 +263,6 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         )
         if manual_offset is not None:
             spectrum_axis.set_ylabel("Normalised detector counts")
-        elif all(quicklook_is_fluxed(frame) for frame in frames.values()):
-            spectrum_axis.set_ylabel("Normalised flux density")
         else:
             spectrum_axis.set_ylabel("Normalised detector counts")
         if display_values:
