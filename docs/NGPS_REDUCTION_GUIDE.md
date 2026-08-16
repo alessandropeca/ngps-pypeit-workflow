@@ -845,6 +845,10 @@ record. Its PypeIt reduction is written only to a copied manual setup, leaving
 the automatic detector products unchanged. After a manual setup is reduced,
 rerun the inventory and flux-calibration steps before coadding.
 
+Manual positions inherit PypeIt's measured FWHM separately for every
+channel/slicer. The red dashboard band shows the representative median width
+for that channel; the copied PypeIt file retains the individual slicer widths.
+
 The `Re-norm U`, `Re-norm G`, `Re-norm R`, and `Re-norm I` controls alter only
 the quick-look y-range, using the chosen channel. They are display aids and do
 not alter detector counts, selections, or PypeIt products.

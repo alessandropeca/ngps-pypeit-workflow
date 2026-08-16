@@ -88,6 +88,27 @@ def slit_id(trace_name: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def automatic_fwhm_by_slit(frame: Frame) -> dict[int, float]:
+    """Read PypeIt's measured FWHM for each automatically found slicer trace."""
+    spec1d = frame.spec2d.parent / frame.spec2d.name.replace("spec2d_", "spec1d_", 1)
+    if not spec1d.is_file():
+        return {}
+    result: dict[int, float] = {}
+    with fits.open(spec1d, memmap=False) as hdul:
+        for hdu in hdul[1:]:
+            identifier = slit_id(hdu.name)
+            value = hdu.header.get("FWHM")
+            if identifier is None or value is None:
+                continue
+            try:
+                fwhm = float(value)
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(fwhm) and fwhm > 0:
+                result[identifier] = fwhm
+    return result
+
+
 def centre_for_slit(slit: tuple[int, np.ndarray, np.ndarray], traces: list[tuple[str, np.ndarray, np.ndarray]], rows: np.ndarray) -> np.ndarray:
     identifier, left, right = slit
     choices = [(spatial, spectral) for name, spatial, spectral in traces if slit_id(name) == identifier]
@@ -106,10 +127,13 @@ def aligned_image(frame: Frame, half_width: int = 38) -> tuple[np.ndarray, np.nd
     numerator = np.zeros((len(rows), len(offsets)))
     weights = np.zeros_like(numerator)
     automatic: list[Selection] = []
+    fwhms = automatic_fwhm_by_slit(frame)
     for slit in slits:
         centre = centre_for_slit(slit, traces, rows)
         middle = len(rows) // 2
-        automatic.append(Selection(float(centre[middle]), float(rows[middle]), 4.0))
+        automatic.append(Selection(
+            float(centre[middle]), float(rows[middle]), fwhms.get(slit[0], 4.0)
+        ))
         x = np.rint(centre[:, None] + offsets[None, :]).astype(int)
         left, right = slit[1], slit[2]
         # Exclude pixels beyond the curved slicer edges from the aligned view.
@@ -150,11 +174,11 @@ def quicklook_spectrum(frame: Frame) -> tuple[np.ndarray, np.ndarray] | None:
 
 
 def manual_quicklook_spectrum(
-    frame: Frame, offset: float, half_width: float = 2.0
+    frame: Frame, offset: float, fwhm: float
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Make a live, display-only 1D aperture sum at an aligned offset."""
     image, offsets, _ = aligned_image(frame)
-    aperture = np.abs(offsets - offset) <= half_width
+    aperture = np.abs(offsets - offset) <= fwhm / 2
     if not np.any(aperture):
         return None
     flux = np.nansum(image[:, aperture], axis=1)
@@ -169,6 +193,13 @@ def manual_quicklook_spectrum(
             wave,
         )
     return wave, flux
+
+
+def display_fwhm(frame: Frame) -> float:
+    """One representative width for the aligned dashboard display only."""
+    _, _, selections = aligned_image(frame)
+    widths = [selection.fwhm for selection in selections if selection.fwhm > 0]
+    return float(np.median(widths)) if widths else 4.0
 
 
 def display_quality_mask(flux: np.ndarray) -> np.ndarray:
@@ -213,6 +244,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     control_axis.axis("off")
     figure.suptitle(f"{target}  |  exposure {exposure}  |  NGPS extraction review", fontsize=15)
     selected: dict[str, float] = {}
+    channel_fwhm: dict[str, float] = {}
     state = {
         "decision": "automatic" if not interactive else "cancel",
         "manual": False,
@@ -228,6 +260,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             axis.set_title(channel.upper())
             continue
         image, offsets, _ = aligned_image(frame)
+        channel_fwhm[channel] = display_fwhm(frame)
         finite = image[np.isfinite(image)]
         limits = np.percentile(finite, (5, 99)) if finite.size else (-1, 1)
         axis.imshow(image, origin="lower", aspect="auto", cmap="viridis", vmin=limits[0], vmax=limits[1], extent=(offsets[0], offsets[-1], 0, image.shape[0] - 1))
@@ -261,7 +294,9 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             frame = frames.get(channel)
             if frame is None:
                 continue
-            spectrum = (manual_quicklook_spectrum(frame, manual_offsets[channel])
+            spectrum = (manual_quicklook_spectrum(
+                            frame, manual_offsets[channel], channel_fwhm[channel]
+                        )
                         if manual_offsets is not None and channel in manual_offsets
                         else quicklook_spectrum(frame))
             if spectrum is None:
@@ -303,9 +338,10 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         selection_artists.clear()
         for channel, offset in selected.items():
             axis = axes[channel]
-            selection_artists.append(axis.axvspan(offset - 2, offset + 2, color="tab:red", alpha=.24))
+            width = channel_fwhm[channel]
+            selection_artists.append(axis.axvspan(offset - width / 2, offset + width / 2, color="tab:red", alpha=.24))
             selection_artists.append(axis.axvline(offset, color="tab:red", lw=.9))
-            selection_artists.append(profile_axis.axvspan(offset - 2, offset + 2, color=COLOURS[channel], alpha=.14))
+            selection_artists.append(profile_axis.axvspan(offset - width / 2, offset + width / 2, color=COLOURS[channel], alpha=.14))
             selection_artists.append(profile_axis.axvline(offset, color=COLOURS[channel], lw=.9, alpha=.9))
         profile_axis.set_title(
             "Spatial profiles\nmanual apertures" if selected

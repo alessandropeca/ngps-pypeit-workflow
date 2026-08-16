@@ -80,6 +80,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    makes the next click move only the panel selected. The saved PDF is
    replaced with your marked version. The original automatic PypeIt products
    are preserved; manual detector products are written to copied manual setups.
+   Manual positions inherit PypeIt's measured FWHM separately for every
+   channel/slicer; the click changes position, not extraction width.
    **Return to automatic** clears the manual aperture and restores the original
    profile and quick-look plots.
    **Re-norm U/G/R/I** sets the quick-look y-range from one channel only; it is
