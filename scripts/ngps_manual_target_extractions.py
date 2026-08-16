@@ -111,7 +111,10 @@ def aligned_image(frame: Frame, half_width: int = 38) -> tuple[np.ndarray, np.nd
         middle = len(rows) // 2
         automatic.append(Selection(float(centre[middle]), float(rows[middle]), 4.0))
         x = np.rint(centre[:, None] + offsets[None, :]).astype(int)
-        valid = (x >= 0) & (x < image.shape[1])
+        left, right = slit[1], slit[2]
+        # Exclude pixels beyond the curved slicer edges from the aligned view.
+        valid = ((x >= 0) & (x < image.shape[1])
+                 & (x >= left[:, None]) & (x <= right[:, None]))
         values = np.full_like(numerator, np.nan, dtype=float)
         value_weights = np.zeros_like(numerator)
         yy = np.broadcast_to(rows[:, None], x.shape)
@@ -143,6 +146,28 @@ def quicklook_spectrum(frame: Frame) -> tuple[np.ndarray, np.ndarray] | None:
         return np.asarray(hdu.data[wave_key]), np.asarray(hdu.data[flux_key])
 
 
+def manual_quicklook_spectrum(
+    frame: Frame, offset: float, half_width: float = 2.0
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Make a live, display-only 1D aperture sum at an aligned offset."""
+    image, offsets, _ = aligned_image(frame)
+    aperture = np.abs(offsets - offset) <= half_width
+    if not np.any(aperture):
+        return None
+    flux = np.nansum(image[:, aperture], axis=1)
+    reference = quicklook_spectrum(frame)
+    if reference is None:
+        return None
+    wave, _ = reference
+    if len(wave) != len(flux):
+        wave = np.interp(
+            np.arange(len(flux)),
+            np.linspace(0, len(flux) - 1, len(wave)),
+            wave,
+        )
+    return wave, flux
+
+
 def audit_path(root: Path, target: str, exposure: str) -> Path:
     output = root / "ExtractionQA" / safe_name(target)
     output.mkdir(parents=True, exist_ok=True)
@@ -154,7 +179,7 @@ def selections_for_offsets(frame: Frame, offsets: list[float]) -> list[Selection
     return [Selection(item.spatial + offset, item.spectral, item.fwhm) for offset in offsets for item in base]
 
 
-def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame], interactive: bool, maximum: int = 3) -> tuple[str, list[float]]:
+def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame], interactive: bool) -> tuple[str, list[float]]:
     """Save a dashboard.  In interactive mode return the chosen extraction decision."""
     figure = plt.figure(figsize=(22, 8.5))
     grid = GridSpec(2, 5, figure=figure, width_ratios=(1, 1, 1, 1, 1.08), height_ratios=(1, .7))
@@ -186,45 +211,70 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         scale = np.nanmax(np.abs(profile))
         if np.isfinite(scale) and scale > 0:
             profile_axis.plot(offsets, profile / scale, color=COLOURS[channel], label=channel.upper())
-        spectrum = quicklook_spectrum(frame)
-        if spectrum is not None:
-            wave, flux = spectrum
-            # A true log y-axis cannot represent sky-subtraction residuals at
-            # zero or below.  Keep them out of this quick-look only; the FITS
-            # product remains unchanged and retains every sample.
-            finite_spec = np.isfinite(wave) & np.isfinite(flux) & (flux > 0)
-            spectrum_axis.plot(wave[finite_spec], flux[finite_spec], color=COLOURS[channel], lw=.65, label=channel.upper())
-
     profile_axis.axvline(0, color="0.7", lw=.8)
     profile_axis.set_title("Spatial profiles (one colour per channel)")
     profile_axis.set_xlabel("Offset from automatic trace (pixels)")
     profile_axis.set_ylabel("Normalised sky-subtracted profile")
     profile_axis.legend(loc="best")
-    spectrum_axis.set_title("Quick-look central-slicer 1D spectra (not a coadd)")
     spectrum_axis.set_xlabel("Vacuum wavelength (Å)")
     spectrum_axis.set_ylabel("FLAM or counts (log scale)")
     spectrum_axis.set_yscale("log")
-    spectrum_axis.legend(loc="best", ncol=4)
+
+    spectrum_lines: list[object] = []
+
+    def redraw_spectra(manual_offset: float | None = None) -> None:
+        for line in spectrum_lines:
+            line.remove()
+        spectrum_lines.clear()
+        for channel in CHANNELS:
+            frame = frames.get(channel)
+            if frame is None:
+                continue
+            spectrum = (manual_quicklook_spectrum(frame, manual_offset)
+                        if manual_offset is not None else quicklook_spectrum(frame))
+            if spectrum is None:
+                continue
+            wave, flux = spectrum
+            # A true log y-axis cannot represent sky-subtraction residuals at
+            # zero or below. The original FITS product keeps those samples.
+            finite_spec = np.isfinite(wave) & np.isfinite(flux) & (flux > 0)
+            if np.any(finite_spec):
+                spectrum_lines.append(spectrum_axis.plot(
+                    wave[finite_spec], flux[finite_spec], color=COLOURS[channel],
+                    lw=.65, label=channel.upper())[0])
+        spectrum_axis.set_title(
+            "Manual-aperture quick-look spectra (display only)"
+            if manual_offset is not None else
+            "Quick-look central-slicer 1D spectra (not a coadd)"
+        )
+        if spectrum_lines:
+            spectrum_axis.legend(loc="best", ncol=4)
+
+    redraw_spectra()
 
     selection_artists: list[object] = []
     def redraw_selections() -> None:
         for artist in selection_artists:
             artist.remove()
         selection_artists.clear()
-        for index, offset in enumerate(selected):
+        for offset in selected:
             for axis in axes.values():
                 selection_artists.append(axis.axvspan(offset - 2, offset + 2, color="tab:red", alpha=.24))
                 selection_artists.append(axis.axvline(offset, color="tab:red", lw=.9))
+            selection_artists.append(profile_axis.axvspan(offset - 2, offset + 2, color="tab:red", alpha=.18))
             selection_artists.append(profile_axis.axvline(offset, color="tab:red", lw=.9, alpha=.8))
+        profile_axis.set_title(
+            "Spatial profiles with manual aperture" if selected
+            else "Spatial profiles (one colour per channel)"
+        )
+        redraw_spectra(selected[0] if selected else None)
         figure.canvas.draw_idle()
 
     def click(event) -> None:
         if not state["manual"] or event.inaxes not in axes.values() or event.xdata is None:
             return
-        if len(selected) >= maximum:
-            print(f"Maximum of {maximum} source component(s) reached.")
-            return
-        selected.append(float(event.xdata))
+        # One component for now: clicking again moves the same manual aperture.
+        selected[:] = [float(event.xdata)]
         redraw_selections()
 
     def accept_auto(event) -> None:
@@ -233,12 +283,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
 
     def begin_manual(event) -> None:
         state["manual"] = True
-        control_message.set_text("Click a red extraction band in any channel panel.\nUse Add another component for a dual/triplet; then Accept manual.")
-        figure.canvas.draw_idle()
-
-    def add_component(event) -> None:
-        state["manual"] = True
-        control_message.set_text(f"Click the next component (up to {maximum}).")
+        control_message.set_text("Click the extraction position in any channel panel.\nA second click moves the same red aperture; then Accept manual.")
         figure.canvas.draw_idle()
 
     def accept_manual(event) -> None:
@@ -258,10 +303,10 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     if interactive:
         button_specs = [
             ("Accept automatic", accept_auto), ("Manual extraction", begin_manual),
-            ("Add another component", add_component), ("Accept manual", accept_manual), ("Cancel", cancel),
+            ("Accept manual", accept_manual), ("Cancel", cancel),
         ]
         for index, (label, callback) in enumerate(button_specs):
-            button_axis = figure.add_axes((.835, .13 + (.06 * (4 - index)), .135, .042))
+            button_axis = figure.add_axes((.835, .17 + (.07 * (3 - index)), .135, .046))
             button = Button(button_axis, label)
             button.on_clicked(callback)
             button_widgets.append(button)
@@ -309,12 +354,9 @@ def main() -> int:
     parser.add_argument("--auto", action="store_true", help="Save PDFs only; do not open review windows")
     parser.add_argument("--all", action="store_true", help="Review every reduced science exposure (used by the reduction driver)")
     parser.add_argument("--run-manual", action="store_true", help="Run each copied manual setup after acceptance")
-    parser.add_argument("--max-components", type=int, default=3, help="Maximum source components: 1 to 3")
     args = parser.parse_args()
     if not args.target and not args.all:
         parser.error("provide --target, or use --all")
-    if not 1 <= args.max_components <= 3:
-        parser.error("--max-components must be 1 to 3")
     root = Path(os.environ.get("NGPS_WORK_ROOT", Path.home() / "ngps_data" / "work")) / args.date
     frames = discover_frames(root)
     if args.target:
@@ -329,7 +371,7 @@ def main() -> int:
         group = groups[group_key]
         target = next(iter(group.values())).target
         print(f"\n{'=' * 76}\n{target} | exposure {exposure} | channels: {', '.join(channel.upper() for channel in sorted(group))}\n{'=' * 76}")
-        decision, offsets = review_group(root, target, exposure, group, not args.auto, args.max_components)
+        decision, offsets = review_group(root, target, exposure, group, not args.auto)
         if decision == "manual":
             # The dashboard PDF above has already replaced the automatic PDF.  Detector products
             # remain protected in copied manual setups.

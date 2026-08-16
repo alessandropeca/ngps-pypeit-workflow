@@ -838,8 +838,8 @@ To revise a suspicious target, open the same per-exposure dashboards:
 
 **Accept automatic** retains PypeIt's result. **Manual extraction** lets you
 click a spatial position in any channel panel; that position is mapped to all
-three slicers of that channel. **Add another component** allows a dual or
-triplet. The accepted manual review replaces the automatic PDF as the audit
+three slicers of that channel. Another click moves the same aperture. The
+accepted manual review replaces the automatic PDF as the audit
 record. Its PypeIt reduction is written only to a copied manual setup, leaving
 the automatic detector products unchanged. After a manual setup is reduced,
 rerun the inventory and flux-calibration steps before coadding.
