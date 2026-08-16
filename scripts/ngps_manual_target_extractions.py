@@ -189,7 +189,10 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         spectrum = quicklook_spectrum(frame)
         if spectrum is not None:
             wave, flux = spectrum
-            finite_spec = np.isfinite(wave) & np.isfinite(flux)
+            # A true log y-axis cannot represent sky-subtraction residuals at
+            # zero or below.  Keep them out of this quick-look only; the FITS
+            # product remains unchanged and retains every sample.
+            finite_spec = np.isfinite(wave) & np.isfinite(flux) & (flux > 0)
             spectrum_axis.plot(wave[finite_spec], flux[finite_spec], color=COLOURS[channel], lw=.65, label=channel.upper())
 
     profile_axis.axvline(0, color="0.7", lw=.8)
@@ -199,7 +202,8 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     profile_axis.legend(loc="best")
     spectrum_axis.set_title("Quick-look central-slicer 1D spectra (not a coadd)")
     spectrum_axis.set_xlabel("Vacuum wavelength (Å)")
-    spectrum_axis.set_ylabel("FLAM or counts")
+    spectrum_axis.set_ylabel("FLAM or counts (log scale)")
+    spectrum_axis.set_yscale("log")
     spectrum_axis.legend(loc="best", ncol=4)
 
     selection_artists: list[object] = []
