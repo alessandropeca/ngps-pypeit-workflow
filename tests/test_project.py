@@ -28,6 +28,7 @@ def test_wrappers_compile():
 
 def test_interactive_extraction_tool_is_present():
     assert (ROOT / "scripts" / "ngps_interactive_extract.py").is_file()
+    assert (ROOT / "scripts" / "ngps_review_target_extractions.py").is_file()
 
 
 def test_interactive_coadd_tool_is_present():

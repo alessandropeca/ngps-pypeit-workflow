@@ -68,17 +68,28 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_reduce_all_configs.py "$DATE"
    ```
 
-3. Optionally review a suspicious 2D extraction. Gold lines are PypeIt’s
-   automatic traces. Choose **Accept automatic**, or click up to three manual
-   positions and choose **Accept manual positions**. Manual choices write only
-   to a copied setup.
+3. Review the 2D extractions. Gold lines are PypeIt’s automatic traces; blue
+   lines are the slicer edges. Choose **Accept automatic**, or click up to three
+   manual positions and choose **Accept manual positions**. Manual choices
+   write only to a copied setup.
+
+   Review every U/G/R/I frame for one target in sequence:
+
+   ```bash
+   python scripts/ngps_review_target_extractions.py "$DATE" \
+     --target 'MGC+04-48-002'
+   ```
+
+   Or open one individual 2D exposure:
 
    ```bash
    python scripts/ngps_interactive_extract.py \
      "$NIGHT/manual_setup_r/p200_ngps_r_B/Science/spec2d_<EXPOSURE>.fits"
    ```
 
-   If a manual setup is rerun, flux-calibrate its new products before coadding.
+   The `QA/PNGs/` images are useful for a quick first pass, but this full 2D
+   review is the extraction decision. If a manual setup is rerun,
+   flux-calibrate its new products before coadding.
 
 4. Inventory, flux-calibrate, and audit the 1D products.
 

@@ -827,6 +827,16 @@ positions and choose **Accept manual positions**. A manual choice creates only a
 copied PypeIt setup; after it is reduced, rerun the inventory and flux
 calibration steps so the manual 1D product is flux calibrated before coadding.
 
+To review every U/G/R/I science frame for one target without typing each
+filename, use:
+
+    python "$WORKFLOW_ROOT/scripts/ngps_review_target_extractions.py" 20260623 \
+        --target MGC+04-48-002
+
+This opens the full sky-subtracted 2D frames one at a time, with slicer edges
+and PypeIt traces overlaid. The PNG QA files are a first-pass check; this 2D
+review is the final decision on automatic versus manual extraction.
+
 The generated setup, selected-file record, and coadd product are kept in:
 
     $NGPS_WORK_ROOT/20260623/Coadds/<target>_<channel>_<setup>/
