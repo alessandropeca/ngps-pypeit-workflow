@@ -845,6 +845,9 @@ record. Its PypeIt reduction is written only to a copied manual setup, leaving
 the automatic detector products unchanged. After a manual setup is reduced,
 rerun the inventory and flux-calibration steps before coadding.
 
+**Cancel**, or closing the window, is a true no-op: it leaves the existing
+review PDF and every PypeIt product unchanged.
+
 Manual positions inherit PypeIt's measured FWHM separately for every
 channel/slicer. The red dashboard band shows the representative median width
 for that channel; the copied PypeIt file retains the individual slicer widths.

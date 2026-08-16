@@ -433,9 +433,13 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             button_widgets.append(button)
     figure.canvas.mpl_connect("button_press_event", click)
     figure.subplots_adjust(left=.045, right=.985, bottom=.09, top=.86, wspace=.22, hspace=.36)
-    output = audit_path(root, target, exposure)
     if interactive:
         plt.show()
+        # Cancel (including closing the window) is deliberately a true no-op:
+        # preserve the previous audit PDF and every PypeIt product exactly.
+        if state["decision"] == "cancel":
+            plt.close(figure)
+            return state["decision"], selected
         # Button axes are useful only in the live review.  Remove them before
         # saving the accepted result as an uncluttered scientific record.
         for button in button_widgets:
@@ -451,6 +455,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     # mode it is written only after the window closes, so the accepted manual
     # bands and live quick-look spectrum replace the earlier automatic review.
     figure.canvas.draw()
+    output = audit_path(root, target, exposure)
     figure.savefig(output)
     print(f"Saved review PDF: {output}")
     plt.close(figure)
@@ -516,7 +521,7 @@ def main() -> int:
         elif decision == "automatic":
             print("Automatic extraction retained; only the review PDF was written.")
         else:
-            print("Review cancelled; the saved PDF remains as an audit record.")
+            print("Review cancelled; existing PDFs and PypeIt products were not changed.")
     return 0
 
 

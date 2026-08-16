@@ -84,6 +84,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    channel/slicer; the click changes position, not extraction width.
    **Return to automatic** clears the manual aperture and restores the original
    profile and quick-look plots.
+   **Cancel**, or closing the window, leaves the existing PDF and all PypeIt
+   products unchanged.
    **Re-norm U/G/R/I** sets the quick-look y-range from one channel only; it is
    a display aid and does not change the detector counts or extracted spectrum.
 
