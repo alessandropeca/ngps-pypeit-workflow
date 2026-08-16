@@ -171,17 +171,6 @@ def manual_quicklook_spectrum(
     return wave, flux
 
 
-def normalise_for_display(flux: np.ndarray) -> np.ndarray:
-    """Scale one channel robustly for an extraction-quality quick-look."""
-    finite = np.isfinite(flux)
-    if not np.any(finite):
-        return flux
-    # The 90th percentile keeps a broad throughput rise in one channel from
-    # compressing the other three, while remaining insensitive to rare spikes.
-    scale = np.nanpercentile(np.abs(flux[finite]), 90)
-    return flux / scale if np.isfinite(scale) and scale > 0 else flux
-
-
 def audit_path(root: Path, target: str, exposure: str) -> Path:
     output = root / "ExtractionQA" / safe_name(target)
     output.mkdir(parents=True, exist_ok=True)
@@ -239,7 +228,6 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         for line in spectrum_lines:
             line.remove()
         spectrum_lines.clear()
-        display_values: list[np.ndarray] = []
         for channel in CHANNELS:
             frame = frames.get(channel)
             if frame is None:
@@ -249,29 +237,23 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             if spectrum is None:
                 continue
             wave, flux = spectrum
-            display_flux = normalise_for_display(flux)
-            finite_spec = np.isfinite(wave) & np.isfinite(display_flux)
+            finite_spec = np.isfinite(wave) & np.isfinite(flux)
             if np.any(finite_spec):
-                display_values.append(display_flux[finite_spec])
                 spectrum_lines.append(spectrum_axis.plot(
-                    wave[finite_spec], display_flux[finite_spec], color=COLOURS[channel],
+                    wave[finite_spec], flux[finite_spec], color=COLOURS[channel],
                     lw=.65, label=channel.upper())[0])
         spectrum_axis.set_title(
             "Manual-aperture quick-look spectra"
             if manual_offset is not None else
-            "Quick-look central-slicer 1D spectra, individually scaled"
+            "Quick-look central-slicer 1D spectra"
         )
         if manual_offset is not None:
-            spectrum_axis.set_ylabel("Normalised detector counts")
+            spectrum_axis.set_ylabel("Detector counts")
         else:
-            spectrum_axis.set_ylabel("Normalised detector counts")
-        if display_values:
-            values = np.concatenate(display_values)
-            lower, upper = np.nanpercentile(values, (1, 99))
-            span = upper - lower
-            if np.isfinite(span) and span > 0:
-                spectrum_axis.set_ylim(lower - .08 * span, upper + .08 * span)
+            spectrum_axis.set_ylabel("Detector counts")
         if spectrum_lines:
+            spectrum_axis.relim()
+            spectrum_axis.autoscale_view()
             spectrum_axis.legend(loc="best", ncol=4)
 
     redraw_spectra()
