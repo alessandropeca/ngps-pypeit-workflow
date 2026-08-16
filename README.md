@@ -2,24 +2,21 @@
 
 This repository contains the reproducible NGPS reduction scripts. It installs
 the pinned NGPS-enabled [PypeIt fork](https://github.com/cfremling/PypeIt)
-separately; PypeIt is the reduction engine and
+separately. 
+PypeIt is the reduction engine and
 [`ngps_pipeline`](https://github.com/alessandropeca/ngps_pipeline) is its
 operational wrapper. The official PypeIt project is
 [here](https://github.com/pypeit/PypeIt).
-
-Pinned revisions are recorded in [`upstream-lock.yml`](upstream-lock.yml).
-Do not update either upstream checkout without following
-[maintenance](docs/MAINTENANCE.md).
-
-The long strings such as `e9ed85c1a237c49626227f4227e323fc390def4b` are Git
-commit IDs: unique labels for the exact tested software version. Do not edit
-them during installation.
 
 ## Install once
 
 Choose folders for your own computer before running these commands. The two
 paths below are examples, not requirements; use any locations you prefer and
 keep them consistent.
+
+Note: The long strings such as `e9ed85c1a237c49626227f4227e323fc390def4b` are Git
+commit IDs: unique labels for the exact tested software version. Do not edit
+them during installation.
 
 ```bash
 export GITHUB_ROOT="$HOME/Documents/GitHub"
@@ -45,7 +42,7 @@ python tools/verify_environment.py
 
 The final command must report both pinned commits as `OK`.
 
-## Nightly reduction
+## Reduction for one night
 
 Set the date and data location:
 
