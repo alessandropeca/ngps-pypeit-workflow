@@ -286,6 +286,15 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         control_message.set_text("Click the extraction position in any channel panel.\nA second click moves the same red aperture; then Accept manual.")
         figure.canvas.draw_idle()
 
+    def return_to_automatic(event) -> None:
+        state["manual"] = False
+        selected.clear()
+        control_message.set_text(
+            "Automatic extraction restored.\n"
+            "Choose Accept automatic, or start Manual extraction again."
+        )
+        redraw_selections()
+
     def accept_manual(event) -> None:
         if not selected:
             control_message.set_text("Choose at least one position first.")
@@ -303,10 +312,11 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     if interactive:
         button_specs = [
             ("Accept automatic", accept_auto), ("Manual extraction", begin_manual),
+            ("Return to automatic", return_to_automatic),
             ("Accept manual", accept_manual), ("Cancel", cancel),
         ]
         for index, (label, callback) in enumerate(button_specs):
-            button_axis = figure.add_axes((.835, .17 + (.07 * (3 - index)), .135, .046))
+            button_axis = figure.add_axes((.835, .13 + (.065 * (4 - index)), .135, .046))
             button = Button(button_axis, label)
             button.on_clicked(callback)
             button_widgets.append(button)

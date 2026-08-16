@@ -79,6 +79,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    panel; another click moves that same extraction aperture. The saved PDF is
    replaced with your marked version. The original automatic PypeIt products
    are preserved; manual detector products are written to copied manual setups.
+   **Return to automatic** clears the manual aperture and restores the original
+   profile and quick-look plots.
 
    ```bash
    python scripts/ngps_manual_target_extractions.py "$DATE" \
