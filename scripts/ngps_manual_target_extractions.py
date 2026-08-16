@@ -446,12 +446,15 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     figure.canvas.mpl_connect("button_press_event", click)
     figure.subplots_adjust(left=.045, right=.985, bottom=.09, top=.86, wspace=.22, hspace=.36)
     output = audit_path(root, target, exposure)
-    figure.savefig(output)
-    print(f"Saved review PDF: {output}")
     if interactive:
         plt.show()
-        # Save again so the accepted manual bands replace the automatic PDF.
-        figure.savefig(output)
+    # There is exactly one audit image per target/exposure.  In interactive
+    # mode it is written only after the window closes, so manual bands, the
+    # live quick-look spectrum, and the MANUAL MODE label replace the earlier
+    # automatic review together.
+    figure.canvas.draw()
+    figure.savefig(output)
+    print(f"Saved review PDF: {output}")
     plt.close(figure)
     return state["decision"], selected
 
