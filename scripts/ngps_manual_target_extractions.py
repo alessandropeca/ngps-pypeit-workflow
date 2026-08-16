@@ -182,7 +182,7 @@ def selections_for_offsets(frame: Frame, offsets: list[float]) -> list[Selection
     return [Selection(item.spatial + offset, item.spectral, item.fwhm) for offset in offsets for item in base]
 
 
-def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame], interactive: bool) -> tuple[str, list[float]]:
+def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame], interactive: bool) -> tuple[str, dict[str, float]]:
     """Save a dashboard.  In interactive mode return the chosen extraction decision."""
     figure = plt.figure(figsize=(22, 10.5))
     grid = GridSpec(2, 5, figure=figure, width_ratios=(1, 1, 1, 1, 1.08), height_ratios=(1, 1))
@@ -192,8 +192,8 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     control_axis = figure.add_subplot(grid[1, 4])
     control_axis.axis("off")
     figure.suptitle(f"{target}  |  exposure {exposure}  |  NGPS extraction review", fontsize=15)
-    selected: list[float] = []
-    state = {"decision": "automatic" if not interactive else "cancel", "manual": False}
+    selected: dict[str, float] = {}
+    state = {"decision": "automatic" if not interactive else "cancel", "manual": False, "channel_only": False}
 
     for channel in CHANNELS:
         axis = axes[channel]
@@ -224,7 +224,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
 
     spectrum_lines: list[object] = []
 
-    def redraw_spectra(manual_offset: float | None = None) -> None:
+    def redraw_spectra(manual_offsets: dict[str, float] | None = None) -> None:
         for line in spectrum_lines:
             line.remove()
         spectrum_lines.clear()
@@ -232,8 +232,9 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             frame = frames.get(channel)
             if frame is None:
                 continue
-            spectrum = (manual_quicklook_spectrum(frame, manual_offset)
-                        if manual_offset is not None else quicklook_spectrum(frame))
+            spectrum = (manual_quicklook_spectrum(frame, manual_offsets[channel])
+                        if manual_offsets is not None and channel in manual_offsets
+                        else quicklook_spectrum(frame))
             if spectrum is None:
                 continue
             wave, flux = spectrum
@@ -244,13 +245,10 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
                     lw=.65, label=channel.upper())[0])
         spectrum_axis.set_title(
             "Manual-aperture quick-look spectra"
-            if manual_offset is not None else
+            if manual_offsets else
             "Quick-look central-slicer 1D spectra"
         )
-        if manual_offset is not None:
-            spectrum_axis.set_ylabel("Detector counts")
-        else:
-            spectrum_axis.set_ylabel("Detector counts")
+        spectrum_axis.set_ylabel("Detector counts")
         if spectrum_lines:
             spectrum_axis.relim()
             spectrum_axis.autoscale_view()
@@ -263,24 +261,28 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         for artist in selection_artists:
             artist.remove()
         selection_artists.clear()
-        for offset in selected:
-            for axis in axes.values():
-                selection_artists.append(axis.axvspan(offset - 2, offset + 2, color="tab:red", alpha=.24))
-                selection_artists.append(axis.axvline(offset, color="tab:red", lw=.9))
-            selection_artists.append(profile_axis.axvspan(offset - 2, offset + 2, color="tab:red", alpha=.18))
-            selection_artists.append(profile_axis.axvline(offset, color="tab:red", lw=.9, alpha=.8))
+        for channel, offset in selected.items():
+            axis = axes[channel]
+            selection_artists.append(axis.axvspan(offset - 2, offset + 2, color="tab:red", alpha=.24))
+            selection_artists.append(axis.axvline(offset, color="tab:red", lw=.9))
+            selection_artists.append(profile_axis.axvspan(offset - 2, offset + 2, color=COLOURS[channel], alpha=.14))
+            selection_artists.append(profile_axis.axvline(offset, color=COLOURS[channel], lw=.9, alpha=.9))
         profile_axis.set_title(
-            "Spatial profiles with manual aperture" if selected
+            "Spatial profiles with manual apertures" if selected
             else "Spatial profiles (one colour per channel)"
         )
-        redraw_spectra(selected[0] if selected else None)
+        redraw_spectra(selected if selected else None)
         figure.canvas.draw_idle()
 
     def click(event) -> None:
         if not state["manual"] or event.inaxes not in axes.values() or event.xdata is None:
             return
-        # One component for now: clicking again moves the same manual aperture.
-        selected[:] = [float(event.xdata)]
+        channel = next(name for name, axis in axes.items() if axis is event.inaxes)
+        if state["channel_only"]:
+            selected[channel] = float(event.xdata)
+        else:
+            # Default: one linked sky position across all four channels.
+            selected.update({name: float(event.xdata) for name in frames})
         redraw_selections()
 
     def accept_auto(event) -> None:
@@ -289,9 +291,16 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
 
     def begin_manual(event) -> None:
         state["manual"] = True
+        state["channel_only"] = False
+
+    def adjust_this_channel(event) -> None:
+        state["manual"] = True
+        state["channel_only"] = True
+        print("Click a channel panel to move only that channel's manual aperture.")
 
     def return_to_automatic(event) -> None:
         state["manual"] = False
+        state["channel_only"] = False
         selected.clear()
         redraw_selections()
 
@@ -311,12 +320,13 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         button_specs = [
             ("Accept automatic", accept_auto, "#D7F2DF", "#BCE8CA"),
             ("Manual extraction", begin_manual, "#D7E9FF", "#BCD8F5"),
+            ("Adjust this channel only", adjust_this_channel, "#D7F4F2", "#B8E8E4"),
             ("Return to automatic", return_to_automatic, "#E8E1FF", "#D3C9F2"),
             ("Accept manual", accept_manual, "#FFE6B3", "#F5D296"),
             ("Cancel", cancel, "#FFD9D9", "#F2BFBF"),
         ]
         for index, (label, callback, colour, hover_colour) in enumerate(button_specs):
-            button_axis = figure.add_axes((.835, .19 + (.075 * (4 - index)), .135, .05))
+            button_axis = figure.add_axes((.835, .10 + (.055 * (5 - index)), .135, .043))
             button = Button(button_axis, label, color=colour, hovercolor=hover_colour)
             button.on_clicked(callback)
             button_widgets.append(button)
@@ -333,13 +343,16 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     return state["decision"], selected
 
 
-def write_manual(root: Path, frames: dict[str, Frame], offsets: list[float], run_manual: bool) -> int:
+def write_manual(root: Path, frames: dict[str, Frame], offsets: dict[str, float], run_manual: bool) -> int:
     for channel, frame in sorted(frames.items()):
+        if channel not in offsets:
+            print(f"{channel.upper()}: automatic extraction retained.")
+            continue
         source = next(iter(sorted(frame.spec2d.parent.parent.glob("*.pypeit"))), None)
         if source is None:
             print(f"WARNING: no PypeIt file for {frame.spec2d}")
             continue
-        selections = selections_for_offsets(frame, offsets)
+        selections = selections_for_offsets(frame, [offsets[channel]])
         print(f"{channel.upper()} PypeIt manual value:\n  {manual_value(selections)}")
         try:
             manual_dir, manual_pypeit = create_manual_copy(source, exposure_from_spec2d(frame.spec2d), selections)

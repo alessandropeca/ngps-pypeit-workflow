@@ -76,7 +76,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
 3. To revise a target whose automatic PDF does not look right, open the same
    dashboard interactively. **Manual extraction** enables a click in a channel
-   panel; another click moves that same extraction aperture. The saved PDF is
+   panel and links the position across U/G/R/I. **Adjust this channel only**
+   makes the next click move only the panel selected. The saved PDF is
    replaced with your marked version. The original automatic PypeIt products
    are preserved; manual detector products are written to copied manual setups.
    **Return to automatic** clears the manual aperture and restores the original
