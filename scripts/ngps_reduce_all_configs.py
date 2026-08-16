@@ -178,7 +178,10 @@ def main() -> int:
         # STEP 2: Discover every generated configuration
         # -----------------------------------------------------
 
-        pypeit_files = sorted(setup_root.glob("*/*.pypeit"))
+        pypeit_files = [
+            path for path in sorted(setup_root.glob("*/*.pypeit"))
+            if "_manual_" not in path.parent.name and "_auto_" not in path.parent.name
+        ]
 
         print(
             f"\n{'=' * 70}\n"
