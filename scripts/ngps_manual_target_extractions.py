@@ -12,6 +12,7 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -488,7 +489,9 @@ def rerun_selected_exposure(
             return 1
         mode = "manual" if manual else "automatic"
         print(f"{channel.upper()} one-exposure {mode} setup: {run_dir}")
-        status = subprocess.run(["run_pypeit", target_pypeit.name], cwd=run_dir).returncode
+        runner = Path(sys.executable).with_name("run_pypeit")
+        command = [str(runner) if runner.is_file() else "run_pypeit", target_pypeit.name]
+        status = subprocess.run(command, cwd=run_dir).returncode
         if status != 0:
             return status
         try:
@@ -539,9 +542,12 @@ def main() -> int:
             if status != 0:
                 return status
         elif decision == "automatic":
-            status = rerun_selected_exposure(group)
-            if status != 0:
-                return status
+            if args.auto:
+                print("Automatic extraction retained; only the review PDF was written.")
+            else:
+                status = rerun_selected_exposure(group)
+                if status != 0:
+                    return status
         else:
             print("Review cancelled; existing PDFs and PypeIt products were not changed.")
     return 0
