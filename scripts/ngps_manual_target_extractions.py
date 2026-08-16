@@ -231,7 +231,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         axis.imshow(image, origin="lower", aspect="auto", cmap="viridis", vmin=limits[0], vmax=limits[1], extent=(offsets[0], offsets[-1], 0, image.shape[0] - 1))
         axis.set_box_aspect(1)
         axis.axvline(0, color="gold", lw=1.2, label="PypeIt automatic centre")
-        axis.set_title(f"{channel.upper()}: aligned three-slicer diagnostic")
+        axis.set_title(f"{channel.upper()}: aligned three-slicer")
         axis.set_xlabel("Offset from automatic trace (pixels)")
         axis.set_ylabel("Spectral pixel")
         profile = np.nanmedian(image, axis=0)
@@ -239,7 +239,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         if np.isfinite(scale) and scale > 0:
             profile_axis.plot(offsets, profile / scale, color=COLOURS[channel], label=channel.upper())
     profile_axis.axvline(0, color="0.7", lw=.8)
-    profile_axis.set_title("Spatial profiles (one colour per channel)")
+    profile_axis.set_title("Spatial profiles, one colour per channel")
     profile_axis.set_xlabel("Offset from automatic trace (pixels)")
     profile_axis.set_ylabel("Normalised sky-subtracted profile")
     profile_axis.legend(loc="best")
@@ -304,7 +304,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             selection_artists.append(profile_axis.axvline(offset, color=COLOURS[channel], lw=.9, alpha=.9))
         profile_axis.set_title(
             "Spatial profiles with manual apertures" if selected
-            else "Spatial profiles (one colour per channel)"
+            else "Spatial profiles, one colour per channel"
         )
         redraw_spectra(selected if selected else None)
         figure.canvas.draw_idle()
