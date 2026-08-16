@@ -181,8 +181,8 @@ def selections_for_offsets(frame: Frame, offsets: list[float]) -> list[Selection
 
 def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame], interactive: bool) -> tuple[str, list[float]]:
     """Save a dashboard.  In interactive mode return the chosen extraction decision."""
-    figure = plt.figure(figsize=(22, 8.5))
-    grid = GridSpec(2, 5, figure=figure, width_ratios=(1, 1, 1, 1, 1.08), height_ratios=(1, .7))
+    figure = plt.figure(figsize=(22, 10.5))
+    grid = GridSpec(2, 5, figure=figure, width_ratios=(1, 1, 1, 1, 1.08), height_ratios=(1, 1))
     axes = {channel: figure.add_subplot(grid[0, index]) for index, channel in enumerate(CHANNELS)}
     profile_axis = figure.add_subplot(grid[0, 4])
     spectrum_axis = figure.add_subplot(grid[1, :4])
@@ -203,6 +203,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         finite = image[np.isfinite(image)]
         limits = np.percentile(finite, (5, 99)) if finite.size else (-1, 1)
         axis.imshow(image, origin="lower", aspect="auto", cmap="viridis", vmin=limits[0], vmax=limits[1], extent=(offsets[0], offsets[-1], 0, image.shape[0] - 1))
+        axis.set_box_aspect(1)
         axis.axvline(0, color="gold", lw=1.2, label="PypeIt automatic centre")
         axis.set_title(f"{channel.upper()}: aligned three-slicer diagnostic")
         axis.set_xlabel("Offset from automatic trace (pixels)")
@@ -217,8 +218,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     profile_axis.set_ylabel("Normalised sky-subtracted profile")
     profile_axis.legend(loc="best")
     spectrum_axis.set_xlabel("Vacuum wavelength (Å)")
-    spectrum_axis.set_ylabel("FLAM or counts (log scale)")
-    spectrum_axis.set_yscale("log")
+    spectrum_axis.set_ylabel("FLAM or counts")
 
     spectrum_lines: list[object] = []
 
@@ -235,9 +235,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             if spectrum is None:
                 continue
             wave, flux = spectrum
-            # A true log y-axis cannot represent sky-subtraction residuals at
-            # zero or below. The original FITS product keeps those samples.
-            finite_spec = np.isfinite(wave) & np.isfinite(flux) & (flux > 0)
+            finite_spec = np.isfinite(wave) & np.isfinite(flux)
             if np.any(finite_spec):
                 spectrum_lines.append(spectrum_axis.plot(
                     wave[finite_spec], flux[finite_spec], color=COLOURS[channel],
@@ -283,22 +281,15 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
 
     def begin_manual(event) -> None:
         state["manual"] = True
-        control_message.set_text("Click the extraction position in any channel panel.\nA second click moves the same red aperture; then Accept manual.")
-        figure.canvas.draw_idle()
 
     def return_to_automatic(event) -> None:
         state["manual"] = False
         selected.clear()
-        control_message.set_text(
-            "Automatic extraction restored.\n"
-            "Choose Accept automatic, or start Manual extraction again."
-        )
         redraw_selections()
 
     def accept_manual(event) -> None:
         if not selected:
-            control_message.set_text("Choose at least one position first.")
-            figure.canvas.draw_idle()
+            print("Choose a position in a channel panel before accepting manual extraction.")
             return
         state["decision"] = "manual"
         plt.close(figure)
@@ -307,17 +298,18 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         state["decision"] = "cancel"
         plt.close(figure)
 
-    control_message = control_axis.text(.5, .94, "Gold line: PypeIt automatic centre.\nRed bands: your manual choices.", ha="center", va="top", wrap=True, transform=control_axis.transAxes)
     button_widgets: list[Button] = []
     if interactive:
         button_specs = [
-            ("Accept automatic", accept_auto), ("Manual extraction", begin_manual),
-            ("Return to automatic", return_to_automatic),
-            ("Accept manual", accept_manual), ("Cancel", cancel),
+            ("Accept automatic", accept_auto, "#D7F2DF", "#BCE8CA"),
+            ("Manual extraction", begin_manual, "#D7E9FF", "#BCD8F5"),
+            ("Return to automatic", return_to_automatic, "#E8E1FF", "#D3C9F2"),
+            ("Accept manual", accept_manual, "#FFE6B3", "#F5D296"),
+            ("Cancel", cancel, "#FFD9D9", "#F2BFBF"),
         ]
-        for index, (label, callback) in enumerate(button_specs):
-            button_axis = figure.add_axes((.835, .13 + (.065 * (4 - index)), .135, .046))
-            button = Button(button_axis, label)
+        for index, (label, callback, colour, hover_colour) in enumerate(button_specs):
+            button_axis = figure.add_axes((.835, .19 + (.075 * (4 - index)), .135, .05))
+            button = Button(button_axis, label, color=colour, hovercolor=hover_colour)
             button.on_clicked(callback)
             button_widgets.append(button)
     else:
