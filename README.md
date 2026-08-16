@@ -79,7 +79,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    panel and links the position across U/G/R/I. **Adjust this channel only**
    makes the next click move only the panel selected. The saved PDF is
    replaced with your marked version. The original automatic PypeIt products
-   are preserved; manual detector products are written to copied manual setups.
+   are preserved; accepting a manual choice writes a copied manual PypeIt
+   setup, not replacement detector products.
    Manual positions inherit PypeIt's measured FWHM separately for every
    channel/slicer; the click changes position, not extraction width.
    **Return to automatic** clears the manual aperture and restores the original
@@ -93,6 +94,15 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_manual_target_extractions.py "$DATE" \
      --target 'MGC+04-48-002'
    ```
+
+   Review outcomes, for example:
+
+   - **Accept automatic**: replaces the PDF with an **AUTO MODE** record; the
+     automatic spectra are unchanged.
+   - **Manual extraction** → click a position → **Accept manual**: replaces
+     the PDF with a **MANUAL MODE** record and writes a copied manual `.pypeit`
+     setup. Add `--run-manual` only when you are ready to reduce that copy.
+   - **Cancel** or close the window: changes nothing—not even the PDF.
 
    Alternatively, omit `--auto` during reduction to open the dashboard for each
    source as soon as the reductions finish:
