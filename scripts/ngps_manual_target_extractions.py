@@ -128,8 +128,19 @@ def aligned_image(frame: Frame, half_width: int = 38) -> tuple[np.ndarray, np.nd
     return combined, offsets, automatic
 
 
+def quicklook_spec1d(frame: Frame) -> tuple[Path, bool]:
+    """Prefer the calibrated copy once flux calibration has been run."""
+    science = frame.spec2d.parent / frame.spec2d.name.replace("spec2d_", "spec1d_", 1)
+    fluxed = frame.spec2d.parent.parent / "Fluxed" / science.name
+    return (fluxed, True) if fluxed.is_file() else (science, False)
+
+
+def quicklook_is_fluxed(frame: Frame) -> bool:
+    return quicklook_spec1d(frame)[1]
+
+
 def quicklook_spectrum(frame: Frame) -> tuple[np.ndarray, np.ndarray] | None:
-    spec1d = frame.spec2d.parent / frame.spec2d.name.replace("spec2d_", "spec1d_", 1)
+    spec1d, _ = quicklook_spec1d(frame)
     if not spec1d.is_file():
         return None
     with fits.open(spec1d, memmap=False) as hdul:
@@ -166,6 +177,17 @@ def manual_quicklook_spectrum(
             wave,
         )
     return wave, flux
+
+
+def normalise_for_display(flux: np.ndarray) -> np.ndarray:
+    """Scale one channel robustly for an extraction-quality quick-look."""
+    finite = np.isfinite(flux)
+    if not np.any(finite):
+        return flux
+    # The 90th percentile keeps a broad throughput rise in one channel from
+    # compressing the other three, while remaining insensitive to rare spikes.
+    scale = np.nanpercentile(np.abs(flux[finite]), 90)
+    return flux / scale if np.isfinite(scale) and scale > 0 else flux
 
 
 def audit_path(root: Path, target: str, exposure: str) -> Path:
@@ -217,8 +239,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     profile_axis.set_xlabel("Offset from automatic trace (pixels)")
     profile_axis.set_ylabel("Normalised sky-subtracted profile")
     profile_axis.legend(loc="best")
-    spectrum_axis.set_xlabel("Vacuum wavelength (Å)")
-    spectrum_axis.set_ylabel("FLAM or counts")
+    spectrum_axis.set_xlabel("Wavelength (Å)")
 
     spectrum_lines: list[object] = []
 
@@ -226,6 +247,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         for line in spectrum_lines:
             line.remove()
         spectrum_lines.clear()
+        display_values: list[np.ndarray] = []
         for channel in CHANNELS:
             frame = frames.get(channel)
             if frame is None:
@@ -235,16 +257,30 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             if spectrum is None:
                 continue
             wave, flux = spectrum
-            finite_spec = np.isfinite(wave) & np.isfinite(flux)
+            display_flux = normalise_for_display(flux)
+            finite_spec = np.isfinite(wave) & np.isfinite(display_flux)
             if np.any(finite_spec):
+                display_values.append(display_flux[finite_spec])
                 spectrum_lines.append(spectrum_axis.plot(
-                    wave[finite_spec], flux[finite_spec], color=COLOURS[channel],
+                    wave[finite_spec], display_flux[finite_spec], color=COLOURS[channel],
                     lw=.65, label=channel.upper())[0])
         spectrum_axis.set_title(
-            "Manual-aperture quick-look spectra (display only)"
+            "Manual-aperture quick-look spectra"
             if manual_offset is not None else
-            "Quick-look central-slicer 1D spectra (not a coadd)"
+            "Quick-look central-slicer 1D spectra, individually scaled"
         )
+        if manual_offset is not None:
+            spectrum_axis.set_ylabel("Normalised detector counts")
+        elif all(quicklook_is_fluxed(frame) for frame in frames.values()):
+            spectrum_axis.set_ylabel("Normalised flux density")
+        else:
+            spectrum_axis.set_ylabel("Normalised detector counts")
+        if display_values:
+            values = np.concatenate(display_values)
+            lower, upper = np.nanpercentile(values, (1, 99))
+            span = upper - lower
+            if np.isfinite(span) and span > 0:
+                spectrum_axis.set_ylim(lower - .08 * span, upper + .08 * span)
         if spectrum_lines:
             spectrum_axis.legend(loc="best", ncol=4)
 
@@ -312,8 +348,6 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             button = Button(button_axis, label, color=colour, hovercolor=hover_colour)
             button.on_clicked(callback)
             button_widgets.append(button)
-    else:
-        control_axis.text(.5, .45, "Automatic run\n\nThis PDF records PypeIt's automatic extraction.\nUse ngps_manual_target_extractions.py\nto revise it.", ha="center", va="center", wrap=True, transform=control_axis.transAxes)
     figure.canvas.mpl_connect("button_press_event", click)
     figure.subplots_adjust(left=.045, right=.985, bottom=.09, top=.86, wspace=.22, hspace=.36)
     output = audit_path(root, target, exposure)
