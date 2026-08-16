@@ -202,7 +202,9 @@ def selections_for_offsets(frame: Frame, offsets: list[float]) -> list[Selection
 
 def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame], interactive: bool) -> tuple[str, dict[str, float]]:
     """Save a dashboard.  In interactive mode return the chosen extraction decision."""
-    figure = plt.figure(figsize=(22, 10.5))
+    # Fits a typical laptop display at Matplotlib's default 100 dpi while
+    # preserving a readable four-channel review layout.
+    figure = plt.figure(figsize=(14, 7.6))
     grid = GridSpec(2, 5, figure=figure, width_ratios=(1, 1, 1, 1, 1.08), height_ratios=(1, 1))
     axes = {channel: figure.add_subplot(grid[0, index]) for index, channel in enumerate(CHANNELS)}
     profile_axis = figure.add_subplot(grid[0, 4])
@@ -231,17 +233,20 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         axis.imshow(image, origin="lower", aspect="auto", cmap="viridis", vmin=limits[0], vmax=limits[1], extent=(offsets[0], offsets[-1], 0, image.shape[0] - 1))
         axis.set_box_aspect(1)
         axis.axvline(0, color="gold", lw=1.2, label="PypeIt automatic centre")
-        axis.set_title(f"{channel.upper()}: aligned three-slicer")
-        axis.set_xlabel("Offset from automatic trace (pixels)")
-        axis.set_ylabel("Spectral pixel")
+        axis.set_title(f"{channel.upper()}: aligned three-slicer", fontsize=9)
+        axis.set_xlabel("Offset from automatic trace (pixels)", fontsize=8)
+        if channel == "u":
+            axis.set_ylabel("Spectral pixel", fontsize=8)
+        axis.tick_params(labelsize=8)
         profile = np.nanmedian(image, axis=0)
         scale = np.nanmax(np.abs(profile))
         if np.isfinite(scale) and scale > 0:
             profile_axis.plot(offsets, profile / scale, color=COLOURS[channel], label=channel.upper())
     profile_axis.axvline(0, color="0.7", lw=.8)
-    profile_axis.set_title("Spatial profiles, one colour per channel")
-    profile_axis.set_xlabel("Offset from automatic trace (pixels)")
-    profile_axis.set_ylabel("Normalised sky-subtracted profile")
+    profile_axis.set_title("Spatial profiles\none colour per channel", fontsize=9)
+    profile_axis.set_xlabel("Offset from automatic trace (pixels)", fontsize=8)
+    profile_axis.set_ylabel("Normalised profile", fontsize=8)
+    profile_axis.tick_params(labelsize=8)
     profile_axis.legend(loc="best")
     spectrum_axis.set_xlabel("Wavelength (Å)")
 
@@ -303,8 +308,8 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             selection_artists.append(profile_axis.axvspan(offset - 2, offset + 2, color=COLOURS[channel], alpha=.14))
             selection_artists.append(profile_axis.axvline(offset, color=COLOURS[channel], lw=.9, alpha=.9))
         profile_axis.set_title(
-            "Spatial profiles with manual apertures" if selected
-            else "Spatial profiles, one colour per channel"
+            "Spatial profiles\nmanual apertures" if selected
+            else "Spatial profiles\none colour per channel"
         )
         redraw_spectra(selected if selected else None)
         figure.canvas.draw_idle()
