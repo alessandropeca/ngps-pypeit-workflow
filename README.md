@@ -47,7 +47,7 @@ The final command must report both pinned commits as `OK`.
 Set the date and data location:
 
 ```bash
-conda activate ngps
+conda activate ngps  # if not already active
 export WORKFLOW_ROOT="$HOME/Documents/GitHub/ngps-pypeit-workflow"  # your chosen location
 cd "$WORKFLOW_ROOT"
 export NGPS_WORK_ROOT="$HOME/ngps_data/work"
@@ -110,10 +110,11 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
      --exposure 0121 --exposure 0123
    ```
 
-## Product order
+## Additional notes
 
-Three slicer traces belong to one raw exposure; 0121, 0122, and 0123 are repeat
-exposures. Coadd repeats within each channel/setup first, then correct telluric
+Three slicer traces belong to one raw exposure, while obs numbers such as 0121, 0122, and 0123, might be repeated
+exposures of the same source (check that in observation log). 
+Coadd repeats within each channel/setup first, then correct telluric
 absorption, then merge U+G+R+I. Telluric correction and four-channel merging
 are not automated yet, so the current final reproducible product is a reviewed,
 flux-calibrated coadd per target/channel/setup.
