@@ -251,26 +251,19 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         "channel_only": False,
         "focus_channel": None,
     }
-    mode_label = figure.text(
-        .9025, .465, "AUTO MODE", ha="center", va="center", fontsize=10,
-        fontweight="bold", color="#1D5F34",
-        bbox={"boxstyle": "round,pad=.45", "facecolor": "#D7F2DF", "edgecolor": "#92C9A5"},
-    )
 
-    def update_mode_label() -> None:
-        """Make the saved review unambiguous about its extraction state."""
-        if state["manual"]:
-            mode_label.set_text("MANUAL MODE")
-            mode_label.set_color("#8A4B00")
-            mode_label.set_bbox({
-                "boxstyle": "round,pad=.45", "facecolor": "#FFE6B3", "edgecolor": "#E8B65D"
-            })
-        else:
-            mode_label.set_text("AUTO MODE")
-            mode_label.set_color("#1D5F34")
-            mode_label.set_bbox({
-                "boxstyle": "round,pad=.45", "facecolor": "#D7F2DF", "edgecolor": "#92C9A5"
-            })
+    def add_final_mode_label(label: str) -> None:
+        """Add a mode badge only to the final saved audit record."""
+        manual = label == "MANUAL MODE"
+        figure.text(
+            .9025, .465, label, ha="center", va="center", fontsize=10,
+            fontweight="bold", color="#8A4B00" if manual else "#1D5F34",
+            bbox={
+                "boxstyle": "round,pad=.45",
+                "facecolor": "#FFE6B3" if manual else "#D7F2DF",
+                "edgecolor": "#E8B65D" if manual else "#92C9A5",
+            },
+        )
 
     for channel in CHANNELS:
         axis = axes[channel]
@@ -368,7 +361,6 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             else "Spatial profiles\none colour per channel"
         )
         redraw_spectra(selected if selected else None)
-        update_mode_label()
         figure.canvas.draw_idle()
 
     def click(event) -> None:
@@ -389,14 +381,10 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     def begin_manual(event) -> None:
         state["manual"] = True
         state["channel_only"] = False
-        update_mode_label()
-        figure.canvas.draw_idle()
 
     def adjust_this_channel(event) -> None:
         state["manual"] = True
         state["channel_only"] = True
-        update_mode_label()
-        figure.canvas.draw_idle()
         print("Click a channel panel to move only that channel's manual aperture.")
 
     def return_to_automatic(event) -> None:
@@ -448,10 +436,18 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     output = audit_path(root, target, exposure)
     if interactive:
         plt.show()
+        # Button axes are useful only in the live review.  Remove them before
+        # saving the accepted result as an uncluttered scientific record.
+        for button in button_widgets:
+            button.ax.remove()
+        if state["decision"] == "manual":
+            add_final_mode_label("MANUAL MODE")
+    else:
+        # --auto writes an explicitly labelled automatic audit record.
+        add_final_mode_label("AUTO MODE")
     # There is exactly one audit image per target/exposure.  In interactive
-    # mode it is written only after the window closes, so manual bands, the
-    # live quick-look spectrum, and the MANUAL MODE label replace the earlier
-    # automatic review together.
+    # mode it is written only after the window closes, so the accepted manual
+    # bands and live quick-look spectrum replace the earlier automatic review.
     figure.canvas.draw()
     figure.savefig(output)
     print(f"Saved review PDF: {output}")
