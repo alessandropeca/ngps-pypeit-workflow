@@ -29,10 +29,11 @@ an extended source, an offset target, or an imperfect extraction.
 | How to extract a source within one exposure | Inspect the 2D image first; use the interactive extraction tool if the automatic trace is unsuitable. |
 | Whether to combine the three image-slicer traces within one exposure | **Not automatic.** This is a separate spatial/science decision and must be defined from the 2D data before coadding repeat exposures. |
 
-The current coadd command uses PypeIt's central-slicer trace as the initial
-point-source candidate from each repeat exposure. It displays these candidate
-exposures and requires a human decision before writing or running a coadd. It
-does not silently combine the three slicer traces.
+The current coadd command proposes one PypeIt trace from each of the three
+slicer slices in every repeat exposure. It shows all of those candidates and
+requires a human decision before PypeIt combines the accepted traces. Normally,
+accept all three slices for each good point-source exposure. A rejected slice
+must have a documented reason, such as a bad extraction or contaminating source.
 
 Telluric correction and the final U+G+R+I merge are not yet automated here.
 Therefore, the current final reproducible product is one reviewed, fluxed,
@@ -202,10 +203,12 @@ python scripts/ngps_interactive_coadd.py "$DATE" \
   --setup p200_ngps_r_B
 ```
 
-The window contains an overlay plus one panel per exposure. Untick any exposure
-that should not contribute, then select **Accept selection**. The script asks
-before it writes the PypeIt coadd input and asks separately before it launches
-the coadd. Select **Cancel** to write nothing.
+The window contains an overlay plus one panel and checkbox per slicer trace.
+For each good raw exposure, normally keep all three traces. Untick a trace only
+when its extraction is unsuitable or it belongs to a contaminating source, then
+select **Accept selection**. The script asks before it writes the PypeIt coadd
+input and asks separately before it launches the coadd. Select **Cancel** to
+write nothing.
 
 Accepted inputs, a JSON selection record, the PypeIt `.coadd1d` file, and the
 coadded FITS product are kept together in a new directory:

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Interactively review and safely coadd one NGPS target/channel/setup.
 
-The reviewer intentionally starts with the standard-star-anchored *central*
-image-slicer slit.  It never silently combines the three slicer regions: an
-integrated-galaxy extraction must be designed from the 2D data first.
+NGPS divides each raw exposure into three image-slicer traces.  The reviewer
+proposes one source trace from each slice of every repeat exposure and makes the
+user accept or reject every proposed trace before PypeIt combines them.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ class Candidate:
     raw_filename: str
     spec1d: str
     obj_id: str
+    slit_id: int
 
 
 def ask_yes_no(question: str, default: bool = False) -> bool:
@@ -85,17 +86,24 @@ def central_slit_from_standard(spec1d: Path) -> tuple[int, int]:
     return best[1], best[2]
 
 
-def central_trace(spec1d: Path, slit_id: int, reference_spat: int) -> str | None:
-    """Pick the source closest to the standard trace on the specified slit."""
-    candidates: list[tuple[int, str]] = []
+def best_trace_per_slicer(spec1d: Path) -> list[tuple[int, str]]:
+    """Return the strongest unique PypeIt trace from each image-slicer slit.
+
+    This creates review *candidates*, not an irreversible science decision. The
+    user sees every candidate and can deselect a bad extraction before coadding.
+    """
+    candidates: dict[int, tuple[float, str]] = {}
     with fits.open(spec1d, memmap=False) as hdul:
         for hdu in hdul[1:]:
             parsed = slit_and_spat(hdu.name)
-            if parsed is not None and parsed[0] == slit_id:
-                candidates.append((parsed[1], hdu.name))
-    if not candidates:
-        return None
-    return min(candidates, key=lambda item: abs(item[0] - reference_spat))[1]
+            if parsed is None:
+                continue
+            slit_id, _ = parsed
+            metric = object_metric(hdu)
+            old = candidates.get(slit_id)
+            if old is None or metric > old[0]:
+                candidates[slit_id] = (metric, hdu.name)
+    return [(slit_id, item[1]) for slit_id, item in sorted(candidates.items())]
 
 
 def plot_arrays(path: Path, obj_id: str) -> tuple[np.ndarray, np.ndarray]:
@@ -108,22 +116,35 @@ def plot_arrays(path: Path, obj_id: str) -> tuple[np.ndarray, np.ndarray]:
     return wave[good], flux[good]
 
 
+def candidate_label(item: Candidate) -> str:
+    exposure = Path(item.raw_filename).stem.rsplit("_", 1)[-1]
+    return f"{exposure} | SLIT{item.slit_id:04d}"
+
+
 def review(candidates: list[Candidate], target: str, channel: str, setup: str) -> list[Candidate] | None:
     """Display every proposed spectrum and return the accepted subset."""
     if not candidates:
         return None
-    figure, axes = plt.subplots(len(candidates) + 1, 1, figsize=(14, 2.5 * (len(candidates) + 1)), sharex=True)
-    figure.subplots_adjust(left=0.25, bottom=0.08, top=0.93, hspace=0.35)
+    figure, axes = plt.subplots(
+        len(candidates) + 1,
+        1,
+        figsize=(14, 2.25 * (len(candidates) + 1)),
+        sharex=True,
+    )
+    figure.subplots_adjust(left=0.26, bottom=0.06, top=0.93, hspace=0.38)
     axes = np.atleast_1d(axes)
     included = [True] * len(candidates)
     plotted: list[list] = [[] for _ in candidates]
 
     overlay = axes[0]
-    overlay.set_title(f"Proposed coadd: {target} | {channel.upper()} | {setup}\nCentral-slit traces only")
+    overlay.set_title(
+        f"Proposed coadd: {target} | {channel.upper()} | {setup}\n"
+        "One candidate from each slicer trace of every repeat exposure"
+    )
     overlay.set_ylabel("Flux")
     for index, item in enumerate(candidates):
         wave, flux = plot_arrays(Path(item.spec1d), item.obj_id)
-        label = Path(item.raw_filename).stem.rsplit("_", 1)[-1]
+        label = candidate_label(item)
         line = overlay.plot(wave, flux, lw=0.8, label=label)[0]
         plotted[index].append(line)
         panel = axes[index + 1]
@@ -135,10 +156,12 @@ def review(candidates: list[Candidate], target: str, channel: str, setup: str) -
     overlay.legend(ncol=min(4, len(candidates)), fontsize=8, loc="upper right")
     axes[-1].set_xlabel("Vacuum wavelength (Å)")
 
-    labels = [Path(item.raw_filename).stem.rsplit("_", 1)[-1] for item in candidates]
-    check_axis = figure.add_axes((0.02, 0.55, 0.18, 0.28))
+    labels = [candidate_label(item) for item in candidates]
+    check_axis = figure.add_axes((0.02, 0.27, 0.22, 0.62))
     checks = CheckButtons(check_axis, labels, included)
-    check_axis.set_title("Include exposure", fontsize=9)
+    check_axis.set_title("Include trace", fontsize=9)
+    for label in checks.labels:
+        label.set_fontsize(7)
     result = {"accepted": False}
 
     def toggle(label: str) -> None:
@@ -156,8 +179,8 @@ def review(candidates: list[Candidate], target: str, channel: str, setup: str) -
         plt.close(figure)
 
     checks.on_clicked(toggle)
-    accept_axis = figure.add_axes((0.03, 0.43, 0.16, 0.05))
-    cancel_axis = figure.add_axes((0.03, 0.36, 0.16, 0.05))
+    accept_axis = figure.add_axes((0.03, 0.18, 0.18, 0.05))
+    cancel_axis = figure.add_axes((0.03, 0.11, 0.18, 0.05))
     Button(accept_axis, "Accept selection").on_clicked(accept)
     Button(cancel_axis, "Cancel").on_clicked(cancel)
     plt.show()
@@ -167,7 +190,7 @@ def review(candidates: list[Candidate], target: str, channel: str, setup: str) -
 
 
 def write_coadd_input(out_dir: Path, target: str, channel: str, setup: str,
-                      slit_id: int, candidates: list[Candidate]) -> tuple[Path, Path]:
+                      central_slit: int, candidates: list[Candidate]) -> tuple[Path, Path]:
     """Write immutable review records and PypeIt's input file; never overwrite."""
     stem = f"{safe_name(target)}_{channel}_{safe_name(setup)}"
     out_dir.mkdir(parents=True, exist_ok=False)
@@ -183,7 +206,8 @@ def write_coadd_input(out_dir: Path, target: str, channel: str, setup: str,
     )
     (out_dir / f"{stem}_selection.json").write_text(json.dumps({
         "target": target, "channel": channel, "setup": setup,
-        "central_slit": slit_id, "candidates": [asdict(item) for item in candidates],
+        "central_slit_anchor": central_slit,
+        "candidates": [asdict(item) for item in candidates],
     }, indent=2) + "\n")
     return coadd_file, output
 
@@ -213,21 +237,25 @@ def main() -> int:
     standard = find_spec1d(setup_dir / "Science", standard_rows[0]["filename"])
     if standard is None:
         parser.error("Could not find the reduced standard-star spec1d file")
-    slit_id, standard_spat = central_slit_from_standard(standard)
+    central_slit, standard_spat = central_slit_from_standard(standard)
     candidates: list[Candidate] = []
     for row in science_rows:
         spec1d = find_spec1d(setup_dir / "Fluxed", row["filename"])
         if spec1d is None:
             print(f"WARNING: no flux-calibrated spec1d for {row['filename']}")
             continue
-        obj_id = central_trace(spec1d, slit_id, standard_spat)
-        if obj_id is None:
-            print(f"WARNING: no central-slit trace in {spec1d.name}")
+        trace_ids = best_trace_per_slicer(spec1d)
+        if not trace_ids:
+            print(f"WARNING: no PypeIt slicer traces in {spec1d.name}")
             continue
-        candidates.append(Candidate(row["filename"], str(spec1d), obj_id))
-    print(f"Central slit: SLIT{slit_id:04d} (standard spatial pixel {standard_spat})")
+        for slit_id, obj_id in trace_ids:
+            candidates.append(Candidate(row["filename"], str(spec1d), obj_id, slit_id))
+    print(
+        f"Central-slit anchor: SLIT{central_slit:04d} "
+        f"(standard spatial pixel {standard_spat})"
+    )
     for item in candidates:
-        print(f"  {item.raw_filename}  {item.obj_id}")
+        print(f"  {candidate_label(item):23s}  {item.obj_id}")
     if not candidates or args.summary:
         return 0
 
@@ -235,12 +263,18 @@ def main() -> int:
     if not accepted:
         print("Coadd cancelled; no files were written.")
         return 0
-    print(f"Accepted {len(accepted)} of {len(candidates)} exposure(s).")
+    exposure_count = len({item.raw_filename for item in accepted})
+    print(
+        f"Accepted {len(accepted)} of {len(candidates)} slicer trace(s) "
+        f"from {exposure_count} repeat exposure(s)."
+    )
     if not ask_yes_no("Write this coadd selection and PypeIt input file?"):
         print("No files were written.")
         return 0
     out_dir = root / "Coadds" / f"{safe_name(args.target)}_{args.channel}_{safe_name(args.setup)}"
-    coadd_file, output = write_coadd_input(out_dir, args.target, args.channel, args.setup, slit_id, accepted)
+    coadd_file, output = write_coadd_input(
+        out_dir, args.target, args.channel, args.setup, central_slit, accepted
+    )
     print(f"Coadd input: {coadd_file}\nExpected output: {output}")
     if ask_yes_no("Run PypeIt coaddition now?"):
         return subprocess.run(["pypeit_coadd_1dspec", str(coadd_file), "--par_outfile", str(out_dir / "coadd1d.par")]).returncode
