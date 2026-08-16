@@ -440,8 +440,10 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         # saving the accepted result as an uncluttered scientific record.
         for button in button_widgets:
             button.ax.remove()
-        if state["decision"] == "manual":
-            add_final_mode_label("MANUAL MODE")
+        if state["decision"] in {"automatic", "manual"}:
+            add_final_mode_label(
+                "MANUAL MODE" if state["decision"] == "manual" else "AUTO MODE"
+            )
     else:
         # --auto writes an explicitly labelled automatic audit record.
         add_final_mode_label("AUTO MODE")
