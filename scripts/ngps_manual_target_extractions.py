@@ -256,7 +256,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         """Add a mode badge only to the final saved audit record."""
         manual = label == "MANUAL MODE"
         figure.text(
-            .9025, .465, label, ha="center", va="center", fontsize=10,
+            .9025, .445, label, ha="center", va="center", fontsize=10,
             fontweight="bold", color="#8A4B00" if manual else "#1D5F34",
             bbox={
                 "boxstyle": "round,pad=.45",
