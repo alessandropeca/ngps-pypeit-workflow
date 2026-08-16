@@ -25,7 +25,7 @@ an extended source, an offset target, or an imperfect extraction.
 
 | What you are deciding | Current workflow behavior |
 | --- | --- |
-| Which 2–4 repeat exposures of one source to coadd | The coadd window shows one candidate from each slicer trace of every exposure; you tick or untick each trace. |
+| Which 2–4 repeat exposures of one source to coadd | The coadd window groups candidates by exposure: one checkbox for 0121, 0122, or 0123 keeps or rejects all of that exposure's slicer traces together. |
 | How to extract a source within one exposure | The 2D review window shows the automatic PypeIt traces. Click **Accept automatic**, or click up to three replacement positions and select **Accept manual positions**. |
 | Whether to combine the three image-slicer traces within one exposure | For an integrated point-source spectrum, normally keep all three good slicer traces. Keep them separate only for a deliberately spatially resolved analysis. |
 
@@ -186,16 +186,21 @@ Flux-calibrated inputs for coaddition are here:
 $NIGHT/manual_setup_<channel>/<setup>/Fluxed/spec1d_*.fits
 ```
 
-### 7. Preview one proposed coadd
+### 7. Find repeat observations of the same target
 
-First ask the script which input spectra it proposes. This writes nothing and
-does not open a window:
+First list all target/channel/setup groups. This writes nothing and does not
+open a window:
+
+```bash
+python scripts/ngps_interactive_coadd.py "$DATE" --list-groups
+```
+
+Then ask which repeat observations it found for one target. This also writes
+nothing and does not open a window:
 
 ```bash
 python scripts/ngps_interactive_coadd.py "$DATE" \
   --target 'MGC+04-48-002' \
-  --channel r \
-  --setup p200_ngps_r_B \
   --summary
 ```
 
@@ -203,17 +208,28 @@ python scripts/ngps_interactive_coadd.py "$DATE" \
 
 ```bash
 python scripts/ngps_interactive_coadd.py "$DATE" \
-  --target 'MGC+04-48-002' \
-  --channel r \
-  --setup p200_ngps_r_B
+  --target 'MGC+04-48-002'
 ```
 
-The window contains an overlay plus one panel and checkbox per slicer trace.
-For each good raw exposure, normally keep all three traces. Untick a trace only
-when its extraction is unsuitable or it belongs to a contaminating source, then
-select **Accept selection**. The script asks before it writes the PypeIt coadd
-input and asks separately before it launches the coadd. Select **Cancel** to
-write nothing.
+If the target occurs in more than one channel or setup, choose the numbered
+groups to review. Each window has one panel and checkbox per **repeat exposure**
+(for example 0121, 0122, and 0123). Each panel displays that exposure's three
+slicer traces, which stay together: unticking 0122 rejects all three of its
+traces. A bad individual trace should instead be corrected in the earlier 2D
+extraction-review step. Select **Accept selection** to continue. The script
+asks before it writes the PypeIt coadd input and asks separately before it
+launches the coadd. Select **Cancel** to write nothing.
+
+To preselect only named raw observations, supply `--exposure` more than once:
+
+```bash
+python scripts/ngps_interactive_coadd.py "$DATE" \
+  --target 'MGC+04-48-002' \
+  --channel r \
+  --setup p200_ngps_r_B \
+  --exposure 0121 \
+  --exposure 0123
+```
 
 Accepted inputs, a JSON selection record, the PypeIt `.coadd1d` file, and the
 coadded FITS product are kept together in a new directory:
@@ -222,9 +238,10 @@ coadded FITS product are kept together in a new directory:
 $NIGHT/Coadds/MGC_04-48-002_r_p200_ngps_r_B/
 ```
 
-Run steps 7–8 separately for every target, channel, and setup that you intend
-to combine. Do not combine distinct setups or image-slicer traces merely because
-they have the same target name.
+The tool always keeps U, G, R, and I separate. Coadd repeat observations within
+each channel/setup first; telluric-correct those per-channel coadds next; only
+then inspect and merge the U+G+R+I products. Do not combine distinct setups
+merely because they have the same target name.
 
 ### 9. Validate before scientific use
 

@@ -787,37 +787,38 @@ sensitivity-function FITS product is saved.
 ===============================================================================
 
 Do not confuse repeat exposures with the three image-slicer traces that appear
-inside one raw NGPS exposure. The coadd reviewer compares the repeat exposures
-of one target (for example, two, three, or four observations) and proposes one
-trace from every slicer slice in each exposure. For a good point-source
-exposure, accept all three slicer traces: they are the pieces that NGPS intends
-to recombine for the full source signal. A spatially extended or blended source
-must first be checked in the 2D frame and, where needed, re-extracted with the
-interactive extraction tool. Reject a slicer trace only for a specific recorded
-reason, such as a bad extraction or contamination.
+inside one raw NGPS exposure. The coadd reviewer finds repeat observations of
+one target by its inventory name, then groups them by channel and PypeIt setup.
+For example, 0121, 0122, and 0123 are three repeat exposures; each panel in the
+review window shows the three slicer traces belonging to one of those exposures.
+For a good point-source exposure, keep all three slicer traces together: they
+are the pieces that NGPS intends to recombine for the full source signal. A
+spatially extended or blended source must first be checked in the 2D frame and,
+where needed, re-extracted with the interactive extraction tool.
 
-For one target, channel, and configuration, first inspect the proposed inputs:
+First list target/channel/setup groups without opening a review window:
+
+    python "$WORKFLOW_ROOT/scripts/ngps_interactive_coadd.py" 20260623 \
+        --list-groups
+
+Then inspect the groups and proposed inputs for one target:
 
     python "$WORKFLOW_ROOT/scripts/ngps_interactive_coadd.py" 20260623 \
         --target MGC+04-48-002 \
-        --channel r \
-        --setup p200_ngps_r_B \
         --summary
 
 Then run the interactive review:
 
     python "$WORKFLOW_ROOT/scripts/ngps_interactive_coadd.py" 20260623 \
-        --target MGC+04-48-002 \
-        --channel r \
-        --setup p200_ngps_r_B
+        --target MGC+04-48-002
 
-The display contains an overlay and one panel per slicer trace. Keep all three
-traces for each good point-source exposure; untick only a trace that is
-unsuitable (for example, an extraction issue, a transient artifact, or
-contamination), then click **Accept selection** or **Cancel**. After acceptance,
-the script asks separately whether to write a new coadd setup and whether to run
-it. It never alters the individual Fluxed spectra or overwrites a previous
-coadd directory.
+If the target has several channel/setup groups, enter the group numbers to
+review. The display contains an overlay and one panel plus checkbox per repeat
+exposure. Unticking an exposure excludes all three of its slicer traces. To
+choose only particular files before the window opens, use one or more
+`--exposure` arguments. After acceptance, the script asks separately whether to
+write a new coadd setup and whether to run it. It never alters the individual
+Fluxed spectra or overwrites a previous coadd directory.
 
 Before this coadd review, use `ngps_interactive_extract.py` for each suspicious
 2D exposure. Its window displays PypeIt's automatic traces in gold. Choose
@@ -831,7 +832,9 @@ The generated setup, selected-file record, and coadd product are kept in:
     $NGPS_WORK_ROOT/20260623/Coadds/<target>_<channel>_<setup>/
 
 Telluric correction and U/G/R/I merging should be reviewed in the same way;
-they are not performed by this coadd command.
+they are not performed by this coadd command. The intended order is: coadd
+repeat observations within each channel/setup, correct telluric absorption on
+the resulting per-channel spectra, then merge U+G+R+I.
 
 ===============================================================================
 24. RECORD THE WORKFLOW VERSION
