@@ -23,10 +23,11 @@ from matplotlib.widgets import Button
 
 from ngps_interactive_extract import (
     Selection,
-    create_manual_copy,
+    create_target_copy,
     exposure_from_spec2d,
     manual_value,
     read_traces,
+    replace_target_products,
 )
 
 
@@ -462,30 +463,40 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     return state["decision"], selected
 
 
-def write_manual(frames: dict[str, Frame], offsets: dict[str, float]) -> int:
-    """Replace derived manual setups and reduce every accepted manual channel."""
+def rerun_selected_exposure(
+    frames: dict[str, Frame], offsets: dict[str, float] | None = None,
+) -> int:
+    """Rerun and install only the accepted exposure's channel products."""
+    manual = offsets is not None
     for channel, frame in sorted(frames.items()):
-        if channel not in offsets:
+        if manual and channel not in offsets:
             print(f"{channel.upper()}: automatic extraction retained.")
             continue
         source = next(iter(sorted(frame.spec2d.parent.parent.glob("*.pypeit"))), None)
         if source is None:
             print(f"WARNING: no PypeIt file for {frame.spec2d}")
             continue
-        selections = selections_for_offsets(frame, [offsets[channel]])
-        print(f"{channel.upper()} PypeIt manual value:\n  {manual_value(selections)}")
+        selections = selections_for_offsets(frame, [offsets[channel]]) if manual else None
+        if selections is not None:
+            print(f"{channel.upper()} PypeIt manual value:\n  {manual_value(selections)}")
         try:
-            manual_dir, manual_pypeit = create_manual_copy(
+            run_dir, target_pypeit = create_target_copy(
                 source, exposure_from_spec2d(frame.spec2d), selections,
-                replace_existing=True,
             )
-        except OSError as error:
-            print(f"ERROR: could not rebuild manual setup: {error}")
+        except (OSError, RuntimeError) as error:
+            print(f"ERROR: could not create one-exposure setup: {error}")
             return 1
-        print(f"Manual setup: {manual_dir}\nRunning PypeIt manual reduction...")
-        status = subprocess.run(["run_pypeit", manual_pypeit.name], cwd=manual_dir).returncode
+        mode = "manual" if manual else "automatic"
+        print(f"{channel.upper()} one-exposure {mode} setup: {run_dir}")
+        status = subprocess.run(["run_pypeit", target_pypeit.name], cwd=run_dir).returncode
         if status != 0:
             return status
+        try:
+            count = replace_target_products(run_dir, source.parent, frame.exposure)
+        except (OSError, RuntimeError) as error:
+            print(f"ERROR: reduction succeeded but products were not installed: {error}")
+            return 1
+        print(f"{channel.upper()}: replaced {count} derived product(s) for exposure {frame.exposure}.")
     return 0
 
 
@@ -494,17 +505,24 @@ def main() -> int:
     parser.add_argument("date", help="UT date, e.g. 20260623")
     parser.add_argument("--target", help="Target name from the science inventory")
     parser.add_argument("--channel", choices=CHANNELS, help="Optional channel filter")
+    parser.add_argument("--exposure", help="Review one four-digit exposure, e.g. 0121")
     parser.add_argument("--auto", action="store_true", help="Save PDFs only; do not open review windows")
     parser.add_argument("--all", action="store_true", help="Internal: review every reduced exposure (used by ngps_reduce_all_configs.py)")
     args = parser.parse_args()
     if not args.target and not args.all:
         parser.error("provide --target, or use --all")
+    if args.target and not args.all and not args.exposure:
+        parser.error("--target review requires --exposure, e.g. --exposure 0121")
+    if args.exposure and not re.fullmatch(r"\d{4}", args.exposure):
+        parser.error("--exposure must be four digits, e.g. 0121")
     root = Path(os.environ.get("NGPS_WORK_ROOT", Path.home() / "ngps_data" / "work")) / args.date
     frames = discover_frames(root)
     if args.target:
         frames = [frame for frame in frames if frame.target.casefold() == args.target.casefold()]
     if args.channel:
         frames = [frame for frame in frames if frame.channel == args.channel]
+    if args.exposure:
+        frames = [frame for frame in frames if frame.exposure == args.exposure]
     groups = group_frames(frames)
     if not groups:
         parser.error("No reduced science spec2d files matched")
@@ -516,12 +534,14 @@ def main() -> int:
         decision, offsets = review_group(root, target, exposure, group, not args.auto)
         if decision == "manual":
             # The dashboard PDF above has already replaced the automatic PDF.
-            # Manual detector products are rebuilt in copied setups.
-            status = write_manual(group, offsets)
+            # Manual detector products are rebuilt for this exposure only.
+            status = rerun_selected_exposure(group, offsets)
             if status != 0:
                 return status
         elif decision == "automatic":
-            print("Automatic extraction retained; only the review PDF was written.")
+            status = rerun_selected_exposure(group)
+            if status != 0:
+                return status
         else:
             print("Review cancelled; existing PDFs and PypeIt products were not changed.")
     return 0

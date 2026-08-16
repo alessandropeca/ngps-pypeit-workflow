@@ -841,21 +841,25 @@ four-channel U/G/R/I dashboard: four slicer-aligned 2D diagnostic panels,
 coloured spatial profiles, and quick-look 1D spectra. The aligned 2D view is a
 review display only, not a science coadd.
 
-To revise one already-reduced suspicious target, open the same per-exposure
-dashboards. This command is for a single target; use
+To revise one already-reduced suspicious target/exposure, open the same
+per-exposure dashboard. This command is for a single target and exposure; use
 `ngps_reduce_all_configs.py` for a whole night:
 
     python "$WORKFLOW_ROOT/scripts/ngps_manual_target_extractions.py" 20260623 \
-        --target MGC+04-48-002
+        --target MGC+04-48-002 \
+        --exposure 0121
 
-**Accept automatic** retains PypeIt's result. **Manual extraction** lets you
-click a spatial position in any channel panel; that position is mapped to all
-three slicers of that channel and linked across U/G/R/I. **Adjust this channel
-only** makes the next click move only its selected channel. The
+**Accept automatic** reruns PypeIt's automatic extraction for that exposure
+only. **Manual extraction** lets you click a spatial position in any channel
+panel; that position is mapped to all three slicers of that channel and linked
+across U/G/R/I. **Adjust this channel only** makes the next click move only its
+selected channel. The
 accepted manual review replaces the automatic PDF as the audit
-record. It rebuilds the copied manual setup and immediately runs PypeIt there,
-leaving the automatic detector products unchanged. After a manual reduction,
-rerun the inventory and flux-calibration steps before coadding.
+record. Either accepted decision creates an isolated one-exposure setup,
+reruns PypeIt, and replaces only that exposure's `spec1d/spec2d` products.
+Other exposures in the same configuration are untouched. Flux calibration is
+the later workflow step, so this review/extraction stage never touches
+`Fluxed/` products.
 
 **Cancel**, or closing the window, is a true no-op: it leaves the existing
 review PDF and every PypeIt product unchanged.

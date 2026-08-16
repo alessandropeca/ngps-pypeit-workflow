@@ -75,8 +75,9 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    they are not a science coadd.
 
 3. To revise one already-reduced target whose automatic PDF does not look
-   right, open the same dashboard interactively. This is a **single-target
-   review command**; use `ngps_reduce_all_configs.py` for a whole night.
+   right, open the same dashboard interactively. This is a **single-target,
+   single-exposure review command**; use `ngps_reduce_all_configs.py` for a
+   whole night.
    **Manual extraction** enables a click in a channel
    panel and links the position across U/G/R/I. **Adjust this channel only**
    makes the next click move only the panel selected. The saved PDF is
@@ -94,7 +95,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
    ```bash
    python scripts/ngps_manual_target_extractions.py "$DATE" \
-     --target 'MGC+04-48-002'
+     --target 'MGC+04-48-002' \
+     --exposure 0121
    ```
 
    Do not add `--all` yourself: it is used internally by the full-night
@@ -103,10 +105,12 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    Review outcomes, for example:
 
    - **Accept automatic**: replaces the PDF with an **AUTO MODE** record; the
-     automatic spectra are unchanged.
+     selected exposure is re-extracted in an isolated automatic setup, then
+     only its `spec1d/spec2d` products replace the previous versions.
    - **Manual extraction** → click a position → **Accept manual**: replaces
-     the PDF with a **MANUAL MODE** record, rebuilds the copied manual setup,
-     and immediately runs PypeIt there. Automatic products remain unchanged.
+     the PDF with a **MANUAL MODE** record, then re-extracts only that exposure
+     in an isolated manual setup. Its `spec1d/spec2d` products replace the
+     previous versions.
    - **Cancel** or close the window: changes nothing—not even the PDF.
 
    Alternatively, omit `--auto` during reduction to open the dashboard for each

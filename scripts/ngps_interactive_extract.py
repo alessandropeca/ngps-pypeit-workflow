@@ -277,6 +277,117 @@ def write_manual_column(source: Path, destination: Path, exposure: str, value: s
     destination.write_text("\n".join(output) + "\n")
 
 
+def write_target_pypeit(
+    source: Path, destination: Path, exposure: str, manual: str | None = None,
+) -> None:
+    """Write one science exposure, retaining all calibration and standard rows."""
+    output, in_data, matched = [], False, 0
+    filename_index = frametype_index = manual_index = None
+    for line in source.read_text().splitlines():
+        stripped = line.strip()
+        if stripped == "data read":
+            in_data = True
+            output.append(line)
+            continue
+        if stripped == "data end":
+            in_data = False
+            output.append(line)
+            continue
+        if not in_data or not stripped or stripped.startswith("#"):
+            output.append(line)
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        if parts[0].lower() == "filename":
+            lowered = [part.lower() for part in parts]
+            if "frametype" not in lowered:
+                raise RuntimeError("PypeIt data table has no frametype column.")
+            filename_index = lowered.index("filename")
+            frametype_index = lowered.index("frametype")
+            manual_index = lowered.index("manual") if "manual" in lowered else None
+            if manual is not None and manual_index is None:
+                parts.append("manual")
+                manual_index = len(parts) - 1
+            output.append(" | ".join(parts))
+            continue
+        if filename_index is None or frametype_index is None:
+            output.append(line)
+            continue
+        while manual_index is not None and len(parts) <= manual_index:
+            parts.append("")
+        filename = parts[filename_index]
+        frametype = parts[frametype_index].lower()
+        selected = filename.endswith(".fits") and f"_{exposure}.fits" in filename
+        if "science" in frametype and not selected:
+            continue
+        if selected:
+            matched += 1
+            if manual_index is not None:
+                parts[manual_index] = manual or ""
+        output.append(" | ".join(parts))
+    if matched != 1:
+        raise RuntimeError(
+            f"Expected one science row for exposure {exposure}; found {matched}."
+        )
+    destination.write_text("\n".join(output) + "\n")
+
+
+def create_target_copy(
+    source_pypeit: Path, exposure: str, selections: list[Selection] | None = None,
+) -> tuple[Path, Path]:
+    """Create an isolated PypeIt setup for one reviewed science exposure."""
+    setup_dir = source_pypeit.parent
+    mode = "manual" if selections is not None else "automatic"
+    run_root = setup_dir / ".ngps_target_runs"
+    run_dir = run_root / f"{setup_dir.name}_{mode}_{exposure}"
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    shutil.copytree(
+        setup_dir, run_dir,
+        ignore=shutil.ignore_patterns(
+            "Science", "QA", "ExtractionQA", "Fluxed", "FluxFiles", "Sensfunc",
+            ".ngps_target_runs", "*.log", "*.pdf", "*.png",
+        ),
+    )
+    copied = run_dir / source_pypeit.name
+    destination = run_dir / f"{source_pypeit.stem}_{mode}_{exposure}.pypeit"
+    write_target_pypeit(
+        copied, destination, exposure,
+        manual_value(selections) if selections is not None else None,
+    )
+    copied.unlink()
+    if selections is not None:
+        (run_dir / f"manual_selection_{exposure}.json").write_text(
+            json.dumps([asdict(item) for item in selections], indent=2) + "\n"
+        )
+    return run_dir, destination
+
+
+def replace_target_products(run_dir: Path, setup_dir: Path, exposure: str) -> int:
+    """Replace only one exposure's detector-level products in its base setup."""
+    source_science = run_dir / "Science"
+    destination_science = setup_dir / "Science"
+    patterns = (
+        f"spec1d_*_{exposure}-*.fits",
+        f"spec2d_*_{exposure}-*.fits",
+        f"spec1d_*_{exposure}-*.txt",
+    )
+    spec1d = sorted(source_science.glob(patterns[0]))
+    spec2d = sorted(source_science.glob(patterns[1]))
+    if not spec1d or not spec2d:
+        raise RuntimeError(
+            f"One-exposure reduction did not produce spec1d and spec2d files for {exposure}."
+        )
+    destination_science.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for pattern in patterns:
+        for previous in destination_science.glob(pattern):
+            previous.unlink()
+        for product in source_science.glob(pattern):
+            shutil.copy2(product, destination_science / product.name)
+            copied += 1
+    return copied
+
+
 def create_manual_copy(
     source_pypeit: Path, exposure: str, selections: list[Selection],
     replace_existing: bool = False,
