@@ -820,22 +820,32 @@ choose only particular files before the window opens, use one or more
 write a new coadd setup and whether to run it. It never alters the individual
 Fluxed spectra or overwrites a previous coadd directory.
 
-Before this coadd review, use `ngps_interactive_extract.py` for each suspicious
-2D exposure. Its window displays PypeIt's automatic traces in gold. Choose
-**Accept automatic** to make no change, or click up to three replacement trace
-positions and choose **Accept manual positions**. A manual choice creates only a
-copied PypeIt setup; after it is reduced, rerun the inventory and flux
-calibration steps so the manual 1D product is flux calibrated before coadding.
+Before this coadd review, check the extraction-review PDF made for every raw
+science exposure. To reduce without stopping, while still creating those PDFs,
+use:
 
-To review every U/G/R/I science frame for one target without typing each
-filename, use:
+    python "$WORKFLOW_ROOT/scripts/ngps_reduce_all_configs.py" 20260623 --auto
 
-    python "$WORKFLOW_ROOT/scripts/ngps_review_target_extractions.py" 20260623 \
+The PDFs are in `ExtractionQA/<target>/`. Each one presents one exposure as a
+four-channel U/G/R/I dashboard: four slicer-aligned 2D diagnostic panels,
+coloured spatial profiles, and quick-look 1D spectra. The aligned 2D view is a
+review display only, not a science coadd.
+
+To revise a suspicious target, open the same per-exposure dashboards:
+
+    python "$WORKFLOW_ROOT/scripts/ngps_manual_target_extractions.py" 20260623 \
         --target MGC+04-48-002
 
-This opens the full sky-subtracted 2D frames one at a time, with slicer edges
-and PypeIt traces overlaid. The PNG QA files are a first-pass check; this 2D
-review is the final decision on automatic versus manual extraction.
+**Accept automatic** retains PypeIt's result. **Manual extraction** lets you
+click a spatial position in any channel panel; that position is mapped to all
+three slicers of that channel. **Add another component** allows a dual or
+triplet. The accepted manual review replaces the automatic PDF as the audit
+record. Its PypeIt reduction is written only to a copied manual setup, leaving
+the automatic detector products unchanged. After a manual setup is reduced,
+rerun the inventory and flux-calibration steps before coadding.
+
+Omit `--auto` when running `ngps_reduce_all_configs.py` to open each
+per-exposure dashboard as soon as reduction is complete.
 
 The generated setup, selected-file record, and coadd product are kept in:
 

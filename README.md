@@ -62,34 +62,37 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    rsync -av "/PATH/TO/RAW/FILES/"*.fits "$NIGHT/raw/"
    ```
 
-2. Reduce every valid channel/setup.
+2. Reduce every valid channel/setup and save an automatic extraction-review PDF
+   for every science exposure. This does not pause for decisions.
+
+   ```bash
+   python scripts/ngps_reduce_all_configs.py "$DATE" --auto
+   ```
+
+   The PDFs are in `$NIGHT/ExtractionQA/<target>/`. Each one has four aligned
+   U/G/R/I 2D panels, coloured spatial profiles, and a quick-look 1D panel.
+   The aligned 2D panels are for checking the same source in the three slicers;
+   they are not a science coadd.
+
+3. To revise a target whose automatic PDF does not look right, open the same
+   dashboard interactively. **Manual extraction** enables a click in a channel
+   panel; **Add another component** permits a dual or triplet. The saved PDF is
+   replaced with your marked version. The original automatic PypeIt products
+   are preserved; manual detector products are written to copied manual setups.
+
+   ```bash
+   python scripts/ngps_manual_target_extractions.py "$DATE" \
+     --target 'MGC+04-48-002'
+   ```
+
+   Alternatively, omit `--auto` during reduction to open the dashboard for each
+   source as soon as the reductions finish:
 
    ```bash
    python scripts/ngps_reduce_all_configs.py "$DATE"
    ```
 
-3. Review the 2D extractions. Gold lines are PypeIt’s automatic traces; blue
-   lines are the slicer edges. Choose **Accept automatic**, or click up to three
-   manual positions and choose **Accept manual positions**. Manual choices
-   write only to a copied setup.
-
-   Review every U/G/R/I frame for one target in sequence:
-
-   ```bash
-   python scripts/ngps_review_target_extractions.py "$DATE" \
-     --target 'MGC+04-48-002'
-   ```
-
-   Or open one individual 2D exposure:
-
-   ```bash
-   python scripts/ngps_interactive_extract.py \
-     "$NIGHT/manual_setup_r/p200_ngps_r_B/Science/spec2d_<EXPOSURE>.fits"
-   ```
-
-   The `QA/PNGs/` images are useful for a quick first pass, but this full 2D
-   review is the extraction decision. If a manual setup is rerun,
-   flux-calibrate its new products before coadding.
+   If a manual setup is rerun, flux-calibrate its new products before coadding.
 
 4. Inventory, flux-calibrate, and audit the 1D products.
 

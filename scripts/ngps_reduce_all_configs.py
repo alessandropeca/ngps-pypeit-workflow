@@ -6,6 +6,7 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -106,6 +107,21 @@ def main() -> int:
         "--overwrite",
         action="store_true",
         help="Pass --overwrite to run_pypeit.",
+    )
+
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help=(
+            "Keep PypeIt's automatic extraction, without opening review windows. "
+            "A four-channel extraction-review PDF is still saved for every science exposure."
+        ),
+    )
+
+    parser.add_argument(
+        "--no-review",
+        action="store_true",
+        help="Reduce only; do not create extraction-review PDFs or open review windows.",
     )
 
     args = parser.parse_args()
@@ -298,6 +314,20 @@ def main() -> int:
         )
 
     print(f"\nTotal spec1d files: {total_spec1d}")
+
+    if not args.no_review:
+        reviewer = Path(__file__).with_name("ngps_manual_target_extractions.py")
+        review_cmd = [sys.executable, str(reviewer), args.date, "--all"]
+        if args.auto:
+            review_cmd.append("--auto")
+        print("\n" + "=" * 70)
+        if args.auto:
+            print("SAVING AUTOMATIC EXTRACTION-REVIEW PDFS")
+        else:
+            print("OPENING EXTRACTION-REVIEW DASHBOARDS")
+        print("=" * 70)
+        if not run(review_cmd):
+            return 1
 
     return 0
 
