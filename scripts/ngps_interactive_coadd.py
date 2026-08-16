@@ -92,7 +92,7 @@ def best_trace_per_slicer(spec1d: Path) -> list[tuple[int, str]]:
     This creates review *candidates*, not an irreversible science decision. The
     user sees every candidate and can deselect a bad extraction before coadding.
     """
-    candidates: dict[int, tuple[float, str]] = {}
+    candidates: dict[int, tuple[int, float, str]] = {}
     with fits.open(spec1d, memmap=False) as hdul:
         for hdu in hdul[1:]:
             parsed = slit_and_spat(hdu.name)
@@ -100,10 +100,13 @@ def best_trace_per_slicer(spec1d: Path) -> list[tuple[int, str]]:
                 continue
             slit_id, _ = parsed
             metric = object_metric(hdu)
+            # A manually clicked extraction is the explicit user choice.  If
+            # it exists, prefer it to an automatic trace on the same slicer.
+            manual = int(bool(hdu.header.get("HAND_EXTRACT_FLAG", False)))
             old = candidates.get(slit_id)
-            if old is None or metric > old[0]:
-                candidates[slit_id] = (metric, hdu.name)
-    return [(slit_id, item[1]) for slit_id, item in sorted(candidates.items())]
+            if old is None or (manual, metric) > (old[0], old[1]):
+                candidates[slit_id] = (manual, metric, hdu.name)
+    return [(slit_id, item[2]) for slit_id, item in sorted(candidates.items())]
 
 
 def plot_arrays(path: Path, obj_id: str) -> tuple[np.ndarray, np.ndarray]:

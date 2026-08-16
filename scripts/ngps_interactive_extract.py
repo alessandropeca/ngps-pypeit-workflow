@@ -18,7 +18,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
-from matplotlib.widgets import Slider
+from matplotlib.widgets import Button, Slider
 
 
 @dataclass
@@ -26,6 +26,12 @@ class Selection:
     spatial: float
     spectral: float
     fwhm: float
+
+
+@dataclass
+class ReviewResult:
+    decision: str
+    selections: list[Selection]
 
 
 def ask_yes_no(question: str, default: bool = False) -> bool:
@@ -68,8 +74,8 @@ def read_traces(spec1d: Path | None) -> list[tuple[str, np.ndarray, np.ndarray]]
     return traces
 
 
-def interactive_select(spec2d: Path, initial_fwhm: float, maximum: int) -> list[Selection]:
-    """Display the sky-subtracted frame and collect up to three positions."""
+def interactive_select(spec2d: Path, initial_fwhm: float, maximum: int) -> ReviewResult:
+    """Review automatic traces or define up to three replacement positions."""
     with fits.open(spec2d, memmap=False) as hdul:
         image = (np.asarray(hdul["DET01-SCIIMG"].data, dtype=float)
                  - np.asarray(hdul["DET01-SKYMODEL"].data, dtype=float))
@@ -84,16 +90,16 @@ def interactive_select(spec2d: Path, initial_fwhm: float, maximum: int) -> list[
     rows = np.arange(image.shape[0])
 
     figure, axis = plt.subplots(figsize=(13, 8))
-    figure.subplots_adjust(bottom=0.17)
+    figure.subplots_adjust(bottom=0.22)
     axis.imshow(image, origin="lower", aspect="auto", cmap="gray",
                 vmin=vmin, vmax=vmax, interpolation="nearest")
     axis.set_xlabel("Spatial detector pixel")
     axis.set_ylabel("Spectral detector pixel")
     axis.set_title(
         "Sky-subtracted 2D spectrum\n"
-        "Gold: PypeIt traces. Left-click: add a position (max 3). "
+        "Gold: PypeIt automatic traces. Accept them, or left-click a replacement position (max 3). "
         "Drag coloured marker: move it. Right-click: remove. "
-        "FWHM slider applies to active marker. Enter: accept; q: cancel."
+        "FWHM slider applies to active marker."
     )
     for slit_id, left, right in slits:
         axis.plot(left, rows, color="deepskyblue", lw=0.6, alpha=0.65)
@@ -111,7 +117,8 @@ def interactive_select(spec2d: Path, initial_fwhm: float, maximum: int) -> list[
     artists: list[tuple[object, object, object]] = []
     active: int | None = None
     dragging = False
-    slider_axis = figure.add_axes((0.2, 0.065, 0.6, 0.03))
+    decision = {"value": "cancel"}
+    slider_axis = figure.add_axes((0.2, 0.12, 0.6, 0.03))
     slider = Slider(slider_axis, "Active FWHM (pixels)", 1.0, 20.0,
                     valinit=initial_fwhm, valstep=0.5)
 
@@ -181,19 +188,47 @@ def interactive_select(spec2d: Path, initial_fwhm: float, maximum: int) -> list[
             redraw()
 
     def on_key(event) -> None:
-        if event.key in {"enter", "return"}:
+        if event.key == "a":
+            decision["value"] = "automatic"
             plt.close(figure)
+        elif event.key in {"enter", "return"}:
+            if selections:
+                decision["value"] = "manual"
+                plt.close(figure)
+            else:
+                print("Click Accept automatic, or add at least one manual position first.")
         elif event.key == "q":
-            selections.clear()
+            decision["value"] = "cancel"
             plt.close(figure)
+
+    def accept_automatic(event) -> None:
+        decision["value"] = "automatic"
+        plt.close(figure)
+
+    def accept_manual(event) -> None:
+        if not selections:
+            print("Add at least one manual position before accepting manual extraction.")
+            return
+        decision["value"] = "manual"
+        plt.close(figure)
+
+    def cancel(event) -> None:
+        decision["value"] = "cancel"
+        plt.close(figure)
 
     figure.canvas.mpl_connect("button_press_event", on_press)
     figure.canvas.mpl_connect("motion_notify_event", on_motion)
     figure.canvas.mpl_connect("button_release_event", on_release)
     figure.canvas.mpl_connect("key_press_event", on_key)
     slider.on_changed(on_slider)
+    auto_axis = figure.add_axes((0.08, 0.035, 0.22, 0.05))
+    manual_axis = figure.add_axes((0.39, 0.035, 0.24, 0.05))
+    cancel_axis = figure.add_axes((0.72, 0.035, 0.16, 0.05))
+    Button(auto_axis, "Accept automatic (a)").on_clicked(accept_automatic)
+    Button(manual_axis, "Accept manual positions").on_clicked(accept_manual)
+    Button(cancel_axis, "Cancel (q)").on_clicked(cancel)
     plt.show()
-    return selections
+    return ReviewResult(decision["value"], selections)
 
 
 def exposure_from_spec2d(spec2d: Path) -> str:
@@ -273,10 +308,14 @@ def main() -> int:
     if not 1 <= args.max_select <= 3 or args.fwhm <= 0:
         parser.error("--max-select must be 1 to 3 and --fwhm must be positive")
 
-    selections = interactive_select(spec2d, args.fwhm, args.max_select)
-    if not selections:
-        print("No manual selection accepted. Nothing was written.")
+    result = interactive_select(spec2d, args.fwhm, args.max_select)
+    if result.decision == "automatic":
+        print("Automatic PypeIt extraction accepted. Nothing was written.")
         return 0
+    if result.decision != "manual":
+        print("Extraction review cancelled. Nothing was written.")
+        return 0
+    selections = result.selections
     print("\nPypeIt manual value:\n  " + manual_value(selections))
     write = args.write_manual or args.run_manual or ask_yes_no("Write this to a copied manual PypeIt setup?")
     if not write:

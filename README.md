@@ -25,9 +25,9 @@ an extended source, an offset target, or an imperfect extraction.
 
 | What you are deciding | Current workflow behavior |
 | --- | --- |
-| Which 2–4 repeat exposures of one source to coadd | The coadd window shows one candidate spectrum per exposure; you tick or untick each one. |
-| How to extract a source within one exposure | Inspect the 2D image first; use the interactive extraction tool if the automatic trace is unsuitable. |
-| Whether to combine the three image-slicer traces within one exposure | **Not automatic.** This is a separate spatial/science decision and must be defined from the 2D data before coadding repeat exposures. |
+| Which 2–4 repeat exposures of one source to coadd | The coadd window shows one candidate from each slicer trace of every exposure; you tick or untick each trace. |
+| How to extract a source within one exposure | The 2D review window shows the automatic PypeIt traces. Click **Accept automatic**, or click up to three replacement positions and select **Accept manual positions**. |
+| Whether to combine the three image-slicer traces within one exposure | For an integrated point-source spectrum, normally keep all three good slicer traces. Keep them separate only for a deliberately spatially resolved analysis. |
 
 The current coadd command proposes one PypeIt trace from each of the three
 slicer slices in every repeat exposure. It shows all of those candidates and
@@ -141,11 +141,16 @@ python scripts/ngps_interactive_extract.py \
   "$NIGHT/manual_setup_r/p200_ngps_r_B/Science/spec2d_<EXPOSURE>.fits"
 ```
 
-The display shows the sky-subtracted 2D spectrum, PypeIt’s suggested traces,
-and any manual extraction positions. You may drag a manual marker, select up to
-three positions, then press Enter. The script asks before creating a copied
-manual setup and asks again before reducing it. It never edits the original
-automatic setup.
+The display shows the sky-subtracted 2D spectrum and PypeIt’s automatic traces
+in gold. Click **Accept automatic** if they are correct: no files are changed.
+If not, click the trace you want (up to three manual positions), drag a marker
+or adjust its FWHM if needed, then click **Accept manual positions**. The script
+asks before creating a copied manual setup and asks again before reducing it; it
+never edits the original automatic setup.
+
+After running a copied manual setup, repeat steps 5–6 for that copied setup so
+its new 1D products are flux-calibrated before they enter coaddition. Do not
+coadd an unfluxed manual product.
 
 ### 5. Build the science/standard inventory
 

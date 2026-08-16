@@ -811,12 +811,20 @@ Then run the interactive review:
         --channel r \
         --setup p200_ngps_r_B
 
-The display contains an overlay and one panel per exposure. Untick any exposure
-that is unsuitable (for example, an extraction issue, a transient artifact, or
-bad observing conditions), then click **Accept selection** or **Cancel**. After
-acceptance, the script asks separately whether to write a new coadd setup and
-whether to run it. It never alters the individual Fluxed spectra or overwrites a
-previous coadd directory.
+The display contains an overlay and one panel per slicer trace. Keep all three
+traces for each good point-source exposure; untick only a trace that is
+unsuitable (for example, an extraction issue, a transient artifact, or
+contamination), then click **Accept selection** or **Cancel**. After acceptance,
+the script asks separately whether to write a new coadd setup and whether to run
+it. It never alters the individual Fluxed spectra or overwrites a previous
+coadd directory.
+
+Before this coadd review, use `ngps_interactive_extract.py` for each suspicious
+2D exposure. Its window displays PypeIt's automatic traces in gold. Choose
+**Accept automatic** to make no change, or click up to three replacement trace
+positions and choose **Accept manual positions**. A manual choice creates only a
+copied PypeIt setup; after it is reduced, rerun the inventory and flux
+calibration steps so the manual 1D product is flux calibrated before coadding.
 
 The generated setup, selected-file record, and coadd product are kept in:
 
