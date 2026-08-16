@@ -1,23 +1,8 @@
 # Reproducible NGPS / PypeIt reductions
 
-This repository is the laboratory-owned, version-controlled workflow for NGPS
-reductions. It wraps the NGPS-enabled PypeIt fork and the NGPS operational
-wrapper; it does not modify or redistribute either upstream project.
+This repository contains my modified version of the NGPS PypeIt fork [`cfremling/PypeIt`](https://github.com/cfremling/PypeIt).
 
-The validated baseline is the environment used for the 2026-06-23 reduction.
-Every upstream revision is a full Git commit recorded in
-[`upstream-lock.yml`](upstream-lock.yml). Nothing in this workflow follows a
-floating upstream branch such as `main` or `develop`.
-
-The reduction engine is [PypeIt](https://github.com/pypeit/PypeIt), whose
-documentation is at [pypeit.readthedocs.io](https://pypeit.readthedocs.io/).
-This workflow installs the separately listed NGPS-enabled PypeIt fork below,
-because that is the revision validated for this instrument and workflow.
-
-| Component | Pinned source | Commit |
-| --- | --- | --- |
-| PypeIt NGPS fork | [`cfremling/PypeIt`](https://github.com/cfremling/PypeIt) | `e9ed85c1a237c49626227f4227e323fc390def4b` |
-| NGPS operational wrapper | [`alessandropeca/ngps_pipeline`](https://github.com/alessandropeca/ngps_pipeline) | `55fa9491eb1683769006118c46b26963bbf33ea2` |
+The main reduction engine is [PypeIt](https://github.com/pypeit/PypeIt), whose documentation is at [pypeit.readthedocs.io](https://pypeit.readthedocs.io/).
 
 ## What this workflow produces today
 
