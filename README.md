@@ -11,23 +11,35 @@ Pinned revisions are recorded in [`upstream-lock.yml`](upstream-lock.yml).
 Do not update either upstream checkout without following
 [maintenance](docs/MAINTENANCE.md).
 
+The long strings such as `e9ed85c1a237c49626227f4227e323fc390def4b` are Git
+commit IDs: unique labels for the exact tested software version. Do not edit
+them during installation.
+
 ## Install once
 
+Choose folders for your own computer before running these commands. The two
+paths below are examples, not requirements; use any locations you prefer and
+keep them consistent.
+
 ```bash
-git clone https://github.com/alessandropeca/ngps-pypeit-workflow.git \
-  ~/Documents/GitHub/ngps-pypeit-workflow
-cd ~/Documents/GitHub/ngps-pypeit-workflow
+export GITHUB_ROOT="$HOME/Documents/GitHub"
+export SOFTWARE_ROOT="$HOME/Software"
+export WORKFLOW_ROOT="$GITHUB_ROOT/ngps-pypeit-workflow"
+mkdir -p "$GITHUB_ROOT" "$SOFTWARE_ROOT"
+
+git clone https://github.com/alessandropeca/ngps-pypeit-workflow.git "$WORKFLOW_ROOT"
+cd "$WORKFLOW_ROOT"
 
 conda env create -f environment.yml
 conda activate ngps
 
-git clone https://github.com/cfremling/PypeIt.git ~/Software/PypeIt
-git -C ~/Software/PypeIt checkout e9ed85c1a237c49626227f4227e323fc390def4b
-git clone https://github.com/alessandropeca/ngps_pipeline.git ~/Software/ngps_pipeline
-git -C ~/Software/ngps_pipeline checkout 55fa9491eb1683769006118c46b26963bbf33ea2
+git clone https://github.com/cfremling/PypeIt.git "$SOFTWARE_ROOT/PypeIt"
+git -C "$SOFTWARE_ROOT/PypeIt" checkout e9ed85c1a237c49626227f4227e323fc390def4b
+git clone https://github.com/alessandropeca/ngps_pipeline.git "$SOFTWARE_ROOT/ngps_pipeline"
+git -C "$SOFTWARE_ROOT/ngps_pipeline" checkout 55fa9491eb1683769006118c46b26963bbf33ea2
 
-python -m pip install -e ~/Software/PypeIt
-python -m pip install -e ~/Software/ngps_pipeline
+python -m pip install -e "$SOFTWARE_ROOT/PypeIt"
+python -m pip install -e "$SOFTWARE_ROOT/ngps_pipeline"
 python tools/verify_environment.py
 ```
 
@@ -39,7 +51,8 @@ Set the date and data location:
 
 ```bash
 conda activate ngps
-cd ~/Documents/GitHub/ngps-pypeit-workflow
+export WORKFLOW_ROOT="$HOME/Documents/GitHub/ngps-pypeit-workflow"  # your chosen location
+cd "$WORKFLOW_ROOT"
 export NGPS_WORK_ROOT="$HOME/ngps_data/work"
 export DATE=20260623
 export NIGHT="$NGPS_WORK_ROOT/$DATE"
