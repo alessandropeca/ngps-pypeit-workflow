@@ -768,11 +768,21 @@ associate a usable calibration set with the 1,2 setup.
 ===============================================================================
 
 The original guide stopped before flux calibration. The pinned workflow now
-tracks the required scripts. After the extracted spectra are present, run:
+tracks the required scripts. After the extracted spectra are present, use this
+safe sequence: inventory, preview the planned associations, run the
+calibration, then audit its output. Only the third command writes fluxed
+science products:
 
+    # Read-only inventory of science and standard-star exposures.
     python "$WORKFLOW_ROOT/scripts/ngps_inventory_standards.py" 20260623
+
+    # Read-only preview of the proposed sensitivity/science associations.
     python "$WORKFLOW_ROOT/scripts/ngps_flux_calibrate.py" 20260623
+
+    # Create sensitivity functions and Fluxed science copies.
     python "$WORKFLOW_ROOT/scripts/ngps_flux_calibrate.py" 20260623 --run
+
+    # Read-only verification that the Fluxed files contain FLAM.
     python "$WORKFLOW_ROOT/scripts/ngps_audit_flux.py" 20260623
 
 The first flux-calibration invocation identifies the proposed associations and

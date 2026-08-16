@@ -113,12 +113,20 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
    If a manual setup is rerun, flux-calibrate its new products before coadding.
 
-4. Inventory, flux-calibrate, and audit the 1D products.
+4. Flux-calibrate the 1D products. This is a safe four-step sequence; only
+   the third command changes science products.
 
    ```bash
+   # 1. Read-only inventory: confirm the science and standard-star exposures.
    python scripts/ngps_inventory_standards.py "$DATE"
+
+   # 2. Read-only dry run: print the proposed standard/science associations.
    python scripts/ngps_flux_calibrate.py "$DATE"
+
+   # 3. Run: create sensitivity functions and Fluxed science copies.
    python scripts/ngps_flux_calibrate.py "$DATE" --run
+
+   # 4. Read-only audit: verify that the Fluxed files contain FLAM.
    python scripts/ngps_audit_flux.py "$DATE"
    ```
 
