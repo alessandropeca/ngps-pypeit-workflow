@@ -495,7 +495,7 @@ def main() -> int:
     parser.add_argument("--target", help="Target name from the science inventory")
     parser.add_argument("--channel", choices=CHANNELS, help="Optional channel filter")
     parser.add_argument("--auto", action="store_true", help="Save PDFs only; do not open review windows")
-    parser.add_argument("--all", action="store_true", help="Review every reduced science exposure (used by the reduction driver)")
+    parser.add_argument("--all", action="store_true", help="Internal: review every reduced exposure (used by ngps_reduce_all_configs.py)")
     args = parser.parse_args()
     if not args.target and not args.all:
         parser.error("provide --target, or use --all")

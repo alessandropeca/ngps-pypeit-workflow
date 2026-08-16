@@ -841,7 +841,9 @@ four-channel U/G/R/I dashboard: four slicer-aligned 2D diagnostic panels,
 coloured spatial profiles, and quick-look 1D spectra. The aligned 2D view is a
 review display only, not a science coadd.
 
-To revise a suspicious target, open the same per-exposure dashboards:
+To revise one already-reduced suspicious target, open the same per-exposure
+dashboards. This command is for a single target; use
+`ngps_reduce_all_configs.py` for a whole night:
 
     python "$WORKFLOW_ROOT/scripts/ngps_manual_target_extractions.py" 20260623 \
         --target MGC+04-48-002
@@ -857,6 +859,9 @@ rerun the inventory and flux-calibration steps before coadding.
 
 **Cancel**, or closing the window, is a true no-op: it leaves the existing
 review PDF and every PypeIt product unchanged.
+
+Do not invoke `--all` directly. It is used internally when the full-night
+reduction driver opens dashboards for every reduced exposure.
 
 Manual positions inherit PypeIt's measured FWHM separately for every
 channel/slicer. The red dashboard band shows the representative median width

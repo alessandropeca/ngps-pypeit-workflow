@@ -74,8 +74,10 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    The aligned 2D panels are for checking the same source in the three slicers;
    they are not a science coadd.
 
-3. To revise a target whose automatic PDF does not look right, open the same
-   dashboard interactively. **Manual extraction** enables a click in a channel
+3. To revise one already-reduced target whose automatic PDF does not look
+   right, open the same dashboard interactively. This is a **single-target
+   review command**; use `ngps_reduce_all_configs.py` for a whole night.
+   **Manual extraction** enables a click in a channel
    panel and links the position across U/G/R/I. **Adjust this channel only**
    makes the next click move only the panel selected. The saved PDF is
    replaced with your marked version. The original automatic PypeIt products
@@ -94,6 +96,9 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_manual_target_extractions.py "$DATE" \
      --target 'MGC+04-48-002'
    ```
+
+   Do not add `--all` yourself: it is used internally by the full-night
+   reduction driver.
 
    Review outcomes, for example:
 
