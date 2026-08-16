@@ -82,6 +82,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    are preserved; manual detector products are written to copied manual setups.
    **Return to automatic** clears the manual aperture and restores the original
    profile and quick-look plots.
+   **Re-norm U/G/R/I** sets the quick-look y-range from one channel only; it is
+   a display aid and does not change the detector counts or extracted spectrum.
 
    ```bash
    python scripts/ngps_manual_target_extractions.py "$DATE" \

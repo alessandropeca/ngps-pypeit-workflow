@@ -171,6 +171,24 @@ def manual_quicklook_spectrum(
     return wave, flux
 
 
+def display_quality_mask(flux: np.ndarray) -> np.ndarray:
+    """Mask only implausible endpoint outliers in a display-only spectrum."""
+    mask = np.isfinite(flux)
+    edge = max(5, int(.01 * len(flux)))
+    core = flux[edge:-edge][np.isfinite(flux[edge:-edge])]
+    if core.size < 10:
+        return mask
+    centre = np.nanmedian(core)
+    scatter = 1.4826 * np.nanmedian(np.abs(core - centre))
+    amplitude = np.nanpercentile(np.abs(core - centre), 95)
+    limit = max(20 * scatter, 20 * amplitude, 1.0)
+    endpoints = np.zeros(len(flux), dtype=bool)
+    endpoints[:edge] = True
+    endpoints[-edge:] = True
+    mask[endpoints & (np.abs(flux - centre) > limit)] = False
+    return mask
+
+
 def audit_path(root: Path, target: str, exposure: str) -> Path:
     output = root / "ExtractionQA" / safe_name(target)
     output.mkdir(parents=True, exist_ok=True)
@@ -193,7 +211,12 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     control_axis.axis("off")
     figure.suptitle(f"{target}  |  exposure {exposure}  |  NGPS extraction review", fontsize=15)
     selected: dict[str, float] = {}
-    state = {"decision": "automatic" if not interactive else "cancel", "manual": False, "channel_only": False}
+    state = {
+        "decision": "automatic" if not interactive else "cancel",
+        "manual": False,
+        "channel_only": False,
+        "focus_channel": None,
+    }
 
     for channel in CHANNELS:
         axis = axes[channel]
@@ -228,6 +251,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         for line in spectrum_lines:
             line.remove()
         spectrum_lines.clear()
+        displayed: dict[str, np.ndarray] = {}
         for channel in CHANNELS:
             frame = frames.get(channel)
             if frame is None:
@@ -238,8 +262,9 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             if spectrum is None:
                 continue
             wave, flux = spectrum
-            finite_spec = np.isfinite(wave) & np.isfinite(flux)
+            finite_spec = np.isfinite(wave) & display_quality_mask(flux)
             if np.any(finite_spec):
+                displayed[channel] = flux[finite_spec]
                 spectrum_lines.append(spectrum_axis.plot(
                     wave[finite_spec], flux[finite_spec], color=COLOURS[channel],
                     lw=.65, label=channel.upper())[0])
@@ -252,6 +277,16 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         if spectrum_lines:
             spectrum_axis.relim()
             spectrum_axis.autoscale_view()
+            focus = state["focus_channel"]
+            if focus in displayed:
+                values = displayed[focus]
+                lower, upper = np.nanpercentile(values, (1, 99))
+                span = upper - lower
+                if np.isfinite(span) and span > 0:
+                    spectrum_axis.set_ylim(lower - .08 * span, upper + .08 * span)
+                    spectrum_axis.set_title(
+                        f"Quick-look central-slicer 1D spectra - y-scale: {focus.upper()}"
+                    )
             spectrum_axis.legend(loc="best", ncol=4)
 
     redraw_spectra()
@@ -304,6 +339,11 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         selected.clear()
         redraw_selections()
 
+    def renormalise(channel: str) -> None:
+        state["focus_channel"] = channel
+        redraw_spectra(selected if selected else None)
+        figure.canvas.draw_idle()
+
     def accept_manual(event) -> None:
         if not selected:
             print("Choose a position in a channel panel before accepting manual extraction.")
@@ -326,9 +366,15 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             ("Cancel", cancel, "#FFD9D9", "#F2BFBF"),
         ]
         for index, (label, callback, colour, hover_colour) in enumerate(button_specs):
-            button_axis = figure.add_axes((.835, .10 + (.055 * (5 - index)), .135, .043))
+            button_axis = figure.add_axes((.835, .16 + (.052 * (5 - index)), .135, .041))
             button = Button(button_axis, label, color=colour, hovercolor=hover_colour)
             button.on_clicked(callback)
+            button_widgets.append(button)
+        for index, channel in enumerate(CHANNELS):
+            column, row = index % 2, index // 2
+            button_axis = figure.add_axes((.835 + (.07 * column), .095 + (.03 * (1 - row)), .065, .024))
+            button = Button(button_axis, f"Re-norm {channel.upper()}", color="#F1F3F5", hovercolor="#DDE4EA")
+            button.on_clicked(lambda event, selected_channel=channel: renormalise(selected_channel))
             button_widgets.append(button)
     figure.canvas.mpl_connect("button_press_event", click)
     figure.subplots_adjust(left=.045, right=.985, bottom=.09, top=.86, wspace=.22, hspace=.36)
