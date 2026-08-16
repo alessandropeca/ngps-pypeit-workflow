@@ -786,10 +786,14 @@ sensitivity-function FITS product is saved.
 23. INTERACTIVE REVIEW BEFORE COADDING
 ===============================================================================
 
-Never coadd all three NGPS image-slicer traces automatically. The central slicer
-trace is the default point-source candidate; a spatially extended or blended
-source must instead be checked in the 2D frame and, where needed, re-extracted
-with the interactive extraction tool before it is coadded.
+Do not confuse repeat exposures with the three image-slicer traces that can
+appear inside one raw NGPS exposure. The coadd reviewer compares the repeat
+exposures of one target (for example, two, three, or four observations). Within
+each exposure it starts with the central-slicer trace as a point-source
+candidate; a spatially extended or blended source must instead be checked in
+the 2D frame and, where needed, re-extracted with the interactive extraction
+tool before the repeat exposures are coadded. It never combines the three
+image-slicer traces automatically.
 
 For one target, channel, and configuration, first inspect the proposed inputs:
 

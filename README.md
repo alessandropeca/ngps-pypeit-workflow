@@ -1,6 +1,8 @@
 # Reproducible NGPS / PypeIt reductions
 
-This repository contains my modified version of the NGPS PypeIt fork [`cfremling/PypeIt`](https://github.com/cfremling/PypeIt).
+This repository contains our NGPS reduction workflow scripts. It does **not**
+contain a modified copy of PypeIt: it installs the fixed NGPS-enabled PypeIt
+fork [`cfremling/PypeIt`](https://github.com/cfremling/PypeIt) separately.
 
 The main reduction engine is [PypeIt](https://github.com/pypeit/PypeIt), whose documentation is at [pypeit.readthedocs.io](https://pypeit.readthedocs.io/).
 
@@ -10,9 +12,27 @@ It takes unmodified raw NGPS FITS files through configuration-aware PypeIt
 reduction, 2D/1D products, interactive manual-extraction review, flux
 calibration, and a reviewed 1D coadd for one target, channel, and setup.
 
-The coadd command deliberately does **not** combine the three NGPS image-slicer
-traces automatically. It displays the proposed central-slicer spectrum for each
-exposure and requires a human decision before writing or running a coadd.
+### Two different meanings of “three spectra”
+
+For a source, your two, three, or four spectra are **repeat exposures**: separate
+raw observations of the same target, which are the spectra you want to inspect
+and potentially coadd.
+
+Within *each one* of those raw NGPS exposures, the instrument's image slicer can
+produce three PypeIt 1D **traces**. Those traces are spatial pieces of the same
+exposure, not three repeat observations. They can look different, especially for
+an extended source, an offset target, or an imperfect extraction.
+
+| What you are deciding | Current workflow behavior |
+| --- | --- |
+| Which 2–4 repeat exposures of one source to coadd | The coadd window shows one candidate spectrum per exposure; you tick or untick each one. |
+| How to extract a source within one exposure | Inspect the 2D image first; use the interactive extraction tool if the automatic trace is unsuitable. |
+| Whether to combine the three image-slicer traces within one exposure | **Not automatic.** This is a separate spatial/science decision and must be defined from the 2D data before coadding repeat exposures. |
+
+The current coadd command uses PypeIt's central-slicer trace as the initial
+point-source candidate from each repeat exposure. It displays these candidate
+exposures and requires a human decision before writing or running a coadd. It
+does not silently combine the three slicer traces.
 
 Telluric correction and the final U+G+R+I merge are not yet automated here.
 Therefore, the current final reproducible product is one reviewed, fluxed,
