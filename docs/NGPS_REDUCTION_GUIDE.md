@@ -851,8 +851,8 @@ click a spatial position in any channel panel; that position is mapped to all
 three slicers of that channel and linked across U/G/R/I. **Adjust this channel
 only** makes the next click move only its selected channel. The
 accepted manual review replaces the automatic PDF as the audit
-record. Its PypeIt reduction is written only to a copied manual setup, leaving
-the automatic detector products unchanged. After a manual setup is reduced,
+record. It rebuilds the copied manual setup and immediately runs PypeIt there,
+leaving the automatic detector products unchanged. After a manual reduction,
 rerun the inventory and flux-calibration steps before coadding.
 
 **Cancel**, or closing the window, is a true no-op: it leaves the existing

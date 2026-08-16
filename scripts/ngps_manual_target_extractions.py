@@ -462,7 +462,8 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     return state["decision"], selected
 
 
-def write_manual(root: Path, frames: dict[str, Frame], offsets: dict[str, float], run_manual: bool) -> int:
+def write_manual(frames: dict[str, Frame], offsets: dict[str, float]) -> int:
+    """Replace derived manual setups and reduce every accepted manual channel."""
     for channel, frame in sorted(frames.items()):
         if channel not in offsets:
             print(f"{channel.upper()}: automatic extraction retained.")
@@ -474,15 +475,17 @@ def write_manual(root: Path, frames: dict[str, Frame], offsets: dict[str, float]
         selections = selections_for_offsets(frame, [offsets[channel]])
         print(f"{channel.upper()} PypeIt manual value:\n  {manual_value(selections)}")
         try:
-            manual_dir, manual_pypeit = create_manual_copy(source, exposure_from_spec2d(frame.spec2d), selections)
-        except FileExistsError as error:
-            print(f"WARNING: {error}")
-            continue
-        print(f"Manual setup: {manual_dir}")
-        if run_manual:
-            status = subprocess.run(["run_pypeit", manual_pypeit.name], cwd=manual_dir).returncode
-            if status != 0:
-                return status
+            manual_dir, manual_pypeit = create_manual_copy(
+                source, exposure_from_spec2d(frame.spec2d), selections,
+                replace_existing=True,
+            )
+        except OSError as error:
+            print(f"ERROR: could not rebuild manual setup: {error}")
+            return 1
+        print(f"Manual setup: {manual_dir}\nRunning PypeIt manual reduction...")
+        status = subprocess.run(["run_pypeit", manual_pypeit.name], cwd=manual_dir).returncode
+        if status != 0:
+            return status
     return 0
 
 
@@ -493,7 +496,6 @@ def main() -> int:
     parser.add_argument("--channel", choices=CHANNELS, help="Optional channel filter")
     parser.add_argument("--auto", action="store_true", help="Save PDFs only; do not open review windows")
     parser.add_argument("--all", action="store_true", help="Review every reduced science exposure (used by the reduction driver)")
-    parser.add_argument("--run-manual", action="store_true", help="Run each copied manual setup after acceptance")
     args = parser.parse_args()
     if not args.target and not args.all:
         parser.error("provide --target, or use --all")
@@ -513,9 +515,9 @@ def main() -> int:
         print(f"\n{'=' * 76}\n{target} | exposure {exposure} | channels: {', '.join(channel.upper() for channel in sorted(group))}\n{'=' * 76}")
         decision, offsets = review_group(root, target, exposure, group, not args.auto)
         if decision == "manual":
-            # The dashboard PDF above has already replaced the automatic PDF.  Detector products
-            # remain protected in copied manual setups.
-            status = write_manual(root, group, offsets, args.run_manual)
+            # The dashboard PDF above has already replaced the automatic PDF.
+            # Manual detector products are rebuilt in copied setups.
+            status = write_manual(group, offsets)
             if status != 0:
                 return status
         elif decision == "automatic":

@@ -277,11 +277,18 @@ def write_manual_column(source: Path, destination: Path, exposure: str, value: s
     destination.write_text("\n".join(output) + "\n")
 
 
-def create_manual_copy(source_pypeit: Path, exposure: str, selections: list[Selection]) -> tuple[Path, Path]:
+def create_manual_copy(
+    source_pypeit: Path, exposure: str, selections: list[Selection],
+    replace_existing: bool = False,
+) -> tuple[Path, Path]:
     setup_dir = source_pypeit.parent
     manual_dir = setup_dir.with_name(f"{setup_dir.name}_manual_{exposure}")
     if manual_dir.exists():
-        raise FileExistsError(f"Manual setup already exists: {manual_dir}")
+        if not replace_existing:
+            raise FileExistsError(f"Manual setup already exists: {manual_dir}")
+        # This directory contains only derived manual products for this exact
+        # setup/exposure.  Rebuild it from the untouched automatic setup.
+        shutil.rmtree(manual_dir)
     shutil.copytree(setup_dir, manual_dir, ignore=shutil.ignore_patterns(
         "Science", "QA", "ExtractionQA", "Fluxed", "FluxFiles", "Sensfunc", "*.log", "*.pdf", "*.png"))
     copied = manual_dir / source_pypeit.name

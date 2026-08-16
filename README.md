@@ -100,8 +100,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    - **Accept automatic**: replaces the PDF with an **AUTO MODE** record; the
      automatic spectra are unchanged.
    - **Manual extraction** → click a position → **Accept manual**: replaces
-     the PDF with a **MANUAL MODE** record and writes a copied manual `.pypeit`
-     setup. Add `--run-manual` only when you are ready to reduce that copy.
+     the PDF with a **MANUAL MODE** record, rebuilds the copied manual setup,
+     and immediately runs PypeIt there. Automatic products remain unchanged.
    - **Cancel** or close the window: changes nothing—not even the PDF.
 
    Alternatively, omit `--auto` during reduction to open the dashboard for each
