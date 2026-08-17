@@ -263,7 +263,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --channel r --setup p200_ngps_r_B --exposure 0121 --exposure 0123
    ```
 
-6. Save the final U/G/R/I plots for every complete target and configuration.
+6. Save the final U/G/R/I plots for every target and configuration with at
+   least one completed channel coadd.
    This does not open graphic windows. The terminal lists every saved plot and
    reports any channel coadd that cannot be plotted.
 
@@ -282,7 +283,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    the FITS spectra. Each y-axis includes every valid flux sample. It saves a PDF
    and PNG in `$NIGHT/FinalQA/MGC_04-48-002/`, for example
    `~/ngps_data/work/20260623/FinalQA/MGC_04-48-002/MGC_04-48-002_UGRI_B_coadds.pdf`.
-   If a target has more than one complete configuration, choose one explicitly:
+   A channel without a completed flux-calibrated coadd is shown as an empty white
+   panel. If a target has more than one configuration, choose one explicitly:
 
    ```bash
    python scripts/ngps_plot_final_spectra.py "$DATE" --target 'NGC4102' --configuration C

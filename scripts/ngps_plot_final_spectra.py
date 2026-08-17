@@ -39,34 +39,28 @@ def completed_coadds(root: Path, target: str) -> dict[str, dict[str, Path]]:
     return found
 
 
-def complete_configurations(found: dict[str, dict[str, Path]]) -> dict[str, dict[str, Path]]:
-    """Return only configurations with all four final channel coadds."""
-    return {key: value for key, value in found.items() if set(value) == set(CHANNELS)}
-
-
 def choose_configuration(
     found: dict[str, dict[str, Path]], requested: str | None,
 ) -> tuple[str, dict[str, Path]]:
-    """Choose one complete U/G/R/I configuration, without guessing among several."""
-    complete = complete_configurations(found)
+    """Choose one configuration that has at least one final channel coadd."""
     if requested is not None:
         configuration = requested.upper()
-        if configuration not in complete:
+        if configuration not in found:
             present = ", ".join(sorted(found.get(configuration, {}))) or "none"
             raise ValueError(
-                f"Configuration {configuration} does not have all U/G/R/I coadds. "
+                f"Configuration {configuration} has no completed coadd. "
                 f"Available channels: {present}"
             )
-        return configuration, complete[configuration]
-    if len(complete) == 1:
-        return next(iter(complete.items()))
-    if not complete:
-        details = "; ".join(
+        return configuration, found[configuration]
+    if len(found) == 1:
+        return next(iter(found.items()))
+    if not found:
+        details = ", ".join(
             f"{key}: {','.join(sorted(value)) or 'none'}" for key, value in sorted(found.items())
         ) or "none"
-        raise ValueError(f"No complete U/G/R/I coadd set found for this target. Found: {details}")
-    choices = ", ".join(sorted(complete))
-    raise ValueError(f"More than one complete configuration is available: {choices}. Use --configuration.")
+        raise ValueError(f"No final channel coadds found for this target. Found: {details}")
+    choices = ", ".join(sorted(found))
+    raise ValueError(f"More than one configuration is available: {choices}. Use --configuration.")
 
 
 def completed_targets(root: Path) -> list[str]:
@@ -108,21 +102,33 @@ def display_limits(fluxes: list[np.ndarray]) -> tuple[float, float]:
 def save_plot(
     root: Path, target: str, configuration: str, paths: dict[str, Path], show: bool,
 ) -> tuple[Path, Path]:
-    """Save one complete U/G/R/I QA plot and optionally open its interactive window."""
-    spectra = {channel: read_spectrum(paths[channel]) for channel in CHANNELS}
+    """Save available channel coadds, using an empty panel for an unavailable channel."""
+    spectra = {channel: read_spectrum(path) for channel, path in paths.items()}
 
     figure, axes = plt.subplots(len(CHANNELS), 1, figsize=(10.0, 7.0))
     for axis, channel in zip(axes, CHANNELS):
+        axis.set_ylabel(r"Flux ($10^{-17}$ erg s$^{-1}$ cm$^{-2}$ Å$^{-1}$)")
+        axis.set_xlabel("Wavelength (Å)")
+        if channel not in spectra:
+            axis.set_facecolor("white")
+            axis.set_xlim(0, 1)
+            axis.set_ylim(0, 1)
+            axis.set_xticks([])
+            axis.set_yticks([])
+            axis.set_title(f"{channel.upper()} coadd unavailable", loc="left", color="0.45")
+            axis.text(
+                0.5, 0.5, "No flux-calibrated coadd", transform=axis.transAxes,
+                ha="center", va="center", color="0.45",
+            )
+            continue
         wave, flux = spectra[channel]
         axis.plot(wave, flux, lw=0.8, color=COLOURS[channel])
         axis.axhline(0, color="0.65", lw=0.7)
         axis.set_xlim(np.min(wave), np.max(wave))
         axis.set_ylim(*display_limits([flux]))
-        axis.set_ylabel(r"Flux ($10^{-17}$ erg s$^{-1}$ cm$^{-2}$ Å$^{-1}$)")
         axis.set_title(f"{channel.upper()} coadd", loc="left", color=COLOURS[channel])
-        axis.set_xlabel("Wavelength (Å)")
     figure.suptitle(
-        f"{target} | final separate U/G/R/I coadds | configuration {configuration}",
+        f"{target} | final available U/G/R/I coadds | configuration {configuration}",
         fontsize=14,
     )
     figure.tight_layout(rect=(0, 0, 1, 0.97))
@@ -146,7 +152,7 @@ def print_saved_plot(target: str, configuration: str, paths: dict[str, Path], pd
     """Print one concise plot result and its source coadds."""
     print(f"\nFinal U/G/R/I coadd plot saved: {target} | configuration {configuration}")
     for channel in CHANNELS:
-        print(f"{channel.upper()}: {paths[channel]}")
+        print(f"{channel.upper()}: {paths.get(channel, 'unavailable')}")
     print(f"PDF: {pdf}")
     print(f"PNG: {png}")
 
@@ -158,7 +164,7 @@ def main() -> int:
     parser.add_argument("date", help="UT date, e.g. 20260623")
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--target", help="Save and open one target plot, e.g. MGC+04-48-002")
-    selection.add_argument("--all", action="store_true", help="Save plots for every complete target/configuration")
+    selection.add_argument("--all", action="store_true", help="Save plots for every target/configuration with a completed coadd")
     parser.add_argument(
         "--configuration", help="NGPS setup letter for one target when multiple complete sets exist, e.g. B",
     )
@@ -185,7 +191,7 @@ def main() -> int:
     completed = 0
     failed = 0
     for target in targets:
-        for configuration, paths in sorted(complete_configurations(completed_coadds(root, target)).items()):
+        for configuration, paths in sorted(completed_coadds(root, target).items()):
             try:
                 pdf, png = save_plot(root, target, configuration, paths, show=False)
             except ValueError as error:
