@@ -274,6 +274,21 @@ def print_groups(groups: list[ObservationGroup]) -> None:
         )
 
 
+def print_discarded_groups(review: dict[tuple[str, str, str], dict[str, str]]) -> None:
+    """Print groups excluded by the persistent coadd review."""
+    discarded = [row for row in review.values() if row["status"].casefold() == "discard"]
+    if not discarded:
+        return
+    print("\nDiscarded groups")
+    print("target                    channel  setup                 exposures       reason")
+    for row in sorted(discarded, key=lambda item: (item["target"], item["channel"], item["setup"])):
+        note = f" | note: {row['notes']}" if row["notes"] else ""
+        print(
+            f"{row['target']:<25} {row['channel']:<7} {row['setup']:<21} "
+            f"{row['exposures']:<15} {row['reason']}{note}"
+        )
+
+
 def choose_groups(groups: list[ObservationGroup]) -> list[ObservationGroup]:
     """Let the user choose channel/setup groups; no files are written here."""
     if len(groups) == 1:
@@ -477,6 +492,7 @@ def main() -> int:
         discarded = sum(1 for row in coadd_review.values() if row["status"].casefold() == "discard")
         print(f"\nCoadd review file: {review_path(root)}")
         print(f"Automatically or manually discarded groups: {discarded}")
+        print_discarded_groups(coadd_review)
         return 0
 
     if args.target is None:
