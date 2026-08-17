@@ -7,6 +7,7 @@ import csv
 import os
 from pathlib import Path
 
+import numpy as np
 from astropy.io import fits
 
 
@@ -15,7 +16,10 @@ def find_spec1d(science_dir: Path, raw_filename: str):
     return sorted(science_dir.glob(f"spec1d_{stem}-*.fits"))
 
 
-def has_flux_columns(path: Path) -> bool:
+def flux_quality(path: Path) -> tuple[bool, bool]:
+    """Return whether a file has FLAM and at least one usable FLAM uncertainty."""
+    has_flam = False
+    has_valid_ivar = False
     try:
         with fits.open(path) as hdul:
             for hdu in hdul[1:]:
@@ -25,12 +29,19 @@ def has_flux_columns(path: Path) -> bool:
                 names = hdu.columns.names or []
 
                 if "OPT_FLAM" in names or "BOX_FLAM" in names:
-                    return True
+                    has_flam = True
+                for flux_name, ivar_name in (("OPT_FLAM", "OPT_FLAM_IVAR"), ("BOX_FLAM", "BOX_FLAM_IVAR")):
+                    if flux_name not in names or ivar_name not in names:
+                        continue
+                    flux = np.asarray(hdu.data[flux_name], dtype=float)
+                    ivar = np.asarray(hdu.data[ivar_name], dtype=float)
+                    if np.any(np.isfinite(flux) & np.isfinite(ivar) & (ivar > 0)):
+                        has_valid_ivar = True
 
     except Exception as exc:
         print(f"ERROR reading {path}: {exc}")
 
-    return False
+    return has_flam, has_valid_ivar
 
 
 def main() -> int:
@@ -58,6 +69,7 @@ def main() -> int:
 
     total_fluxed = 0
     successfully_fluxed = 0
+    valid_uncertainty = 0
 
     print()
     print("=" * 80)
@@ -155,19 +167,20 @@ def main() -> int:
             if not files:
                 continue
 
-            good = sum(
-                has_flux_columns(path)
-                for path in files
-            )
+            quality = [flux_quality(path) for path in files]
+            good = sum(has_flam for has_flam, _ in quality)
+            usable = sum(has_ivar for _, has_ivar in quality)
 
             total_fluxed += len(files)
             successfully_fluxed += good
+            valid_uncertainty += usable
 
             print(
                 f"{channel.upper():2s}  "
                 f"{fluxed_dir.parent.name:20s}  "
                 f"files={len(files):3d}  "
-                f"with_FLAM={good:3d}"
+                f"with_FLAM={good:3d}  "
+                f"with_valid_FLAM_IVAR={usable:3d}"
             )
 
     print()
@@ -194,6 +207,15 @@ def main() -> int:
         f"Files containing FLAM:   "
         f"{successfully_fluxed}"
     )
+
+    print(
+        f"Files with valid FLAM IVAR: "
+        f"{valid_uncertainty}"
+    )
+
+    if valid_uncertainty != total_fluxed:
+        print("WARNING: Some fluxed files have no usable FLAM uncertainties.")
+        return 1
 
     return 0
 

@@ -166,10 +166,17 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    plan, then run the single-line `--run` command above. To discard edits and
    create a new proposal, run `python scripts/ngps_flux_calibrate.py "$DATE" --reset-associations`.
 
-   If a selected standard fails, the run finds the nearest standard with a
-   successful sensitivity function and writes it as an `automatic fallback`.
+   If a selected standard fails or has an invalid sensitivity function, the run
+   finds the nearest validated standard and writes it as an `automatic fallback`.
    It stops before flux calibration. Review the updated association file, run
-   the dry run, then run `--run` again.
+   the dry run, then run `--run` again. If no validated standard exists, it stops
+   without flux-calibrating that group.
+
+   During `--run`, every available standard in a channel/setup is compared with
+   its known PypeIt reference spectrum. A missing, non-finite, or discrepant
+   standard is rejected. If the remaining standard responses disagree by more
+   than 1 mag across their central response, that channel/setup is stopped for
+   review. Read `$NIGHT/sensitivity_review.csv` before changing an association.
 
 5. Find repeated observations by target name, then review and coadd them.
 

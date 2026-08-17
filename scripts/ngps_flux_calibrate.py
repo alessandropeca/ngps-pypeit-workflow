@@ -12,6 +12,9 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
+from astropy.io import fits
+
 
 ASSOCIATION_FIELDS = (
     "channel", "setup", "group_id", "target", "science_filenames",
@@ -21,6 +24,11 @@ ASSOCIATION_FIELDS = (
 REQUIRED_ASSOCIATION_FIELDS = tuple(
     field for field in ASSOCIATION_FIELDS if field != "assignment_status"
 )
+SENSITIVITY_REVIEW_FIELDS = (
+    "channel", "setup", "standard_filename", "standard_target", "status", "detail",
+)
+MAX_SENSITIVITY_DISAGREEMENT_MAG = 1.0
+MAX_STANDARD_REFERENCE_RESIDUAL_DEX = np.log10(2.0)
 
 
 def run_command(command: list[str], cwd: Path) -> bool:
@@ -41,6 +49,135 @@ def pypeit_command(name: str, *arguments: str) -> list[str]:
     """Run a PypeIt entry point from the active Python environment."""
     executable = Path(sys.executable).with_name(name)
     return [str(executable) if executable.is_file() else name, *arguments]
+
+
+def validate_sensfunc(path: Path) -> tuple[bool, str]:
+    """Reject standard observations that do not reproduce their reference flux."""
+    try:
+        with fits.open(path, memmap=False) as hdul:
+            if "SENS" not in hdul:
+                return False, "missing SENS extension"
+            data = hdul["SENS"].data
+            names = data.dtype.names or ()
+            required = {
+                "SENS_ZEROPOINT_FIT", "SENS_ZEROPOINT_FIT_GPM",
+                "SENS_FLUXED_STD_WAVE", "SENS_FLUXED_STD_FLAM",
+                "SENS_FLUXED_STD_FLAM_IVAR", "SENS_FLUXED_STD_MASK",
+                "SENS_STD_MODEL_FLAM",
+            }
+            missing = required - set(names)
+            if missing:
+                return False, f"missing columns: {','.join(sorted(missing))}"
+            fit = np.asarray(data["SENS_ZEROPOINT_FIT"], dtype=float).ravel()
+            fit_gpm = np.asarray(data["SENS_ZEROPOINT_FIT_GPM"], dtype=bool).ravel()
+            standard_wave = np.asarray(data["SENS_FLUXED_STD_WAVE"], dtype=float).ravel()
+            standard_flux = np.asarray(data["SENS_FLUXED_STD_FLAM"], dtype=float).ravel()
+            standard_ivar = np.asarray(data["SENS_FLUXED_STD_FLAM_IVAR"], dtype=float).ravel()
+            standard_mask = np.asarray(data["SENS_FLUXED_STD_MASK"], dtype=bool).ravel()
+            standard_model = np.asarray(data["SENS_STD_MODEL_FLAM"], dtype=float).ravel()
+    except Exception as error:
+        return False, f"cannot read file: {error}"
+    usable = fit_gpm & np.isfinite(fit)
+    fit_fraction = usable.sum() / max(fit_gpm.sum(), 1)
+    if fit_fraction < 0.95:
+        return False, f"only {fit_fraction:.0%} of fitted sensitivity pixels are finite"
+    if not np.any(np.isfinite(standard_ivar) & (standard_ivar > 0)):
+        return False, "standard-star flux inverse variance is zero everywhere"
+    standard_good = (
+        standard_mask & np.isfinite(standard_wave) & np.isfinite(standard_flux)
+        & np.isfinite(standard_model) & np.isfinite(standard_ivar)
+        & (standard_flux > 0) & (standard_model > 0) & (standard_ivar > 0)
+    )
+    if standard_good.sum() < 20:
+        return False, "too few valid reference-spectrum comparison pixels"
+    residual = np.abs(np.log10(standard_flux[standard_good] / standard_model[standard_good]))
+    residual_90 = float(np.percentile(residual, 90))
+    if residual_90 > MAX_STANDARD_REFERENCE_RESIDUAL_DEX:
+        return False, (
+            "calibrated standard disagrees with its reference spectrum in 10% or more "
+            f"of pixels (90th-percentile residual {residual_90:.2f} dex)"
+        )
+    return True, "valid"
+
+
+def sensitivity_curve(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """Read a sensitivity fit and its fitted-good-pixel mask."""
+    with fits.open(path, memmap=False) as hdul:
+        data = hdul["SENS"].data
+        fit = np.asarray(data["SENS_ZEROPOINT_FIT"], dtype=float).ravel()
+        good = np.asarray(data["SENS_ZEROPOINT_FIT_GPM"], dtype=bool).ravel()
+    return fit, good & np.isfinite(fit)
+
+
+def central_sensitivity_offset(first: Path, second: Path) -> float | None:
+    """Return the central-wavelength zero-point difference between two standards."""
+    fit_a, good_a = sensitivity_curve(first)
+    fit_b, good_b = sensitivity_curve(second)
+    if len(fit_a) != len(fit_b):
+        return None
+    interior = np.zeros(len(fit_a), dtype=bool)
+    interior[len(fit_a) // 10: 9 * len(fit_a) // 10] = True
+    good = interior & good_a & good_b
+    if good.sum() < 20:
+        return None
+    return float(abs(np.median(fit_a[good] - fit_b[good])))
+
+
+def sensitivity_review(
+    plans: list[dict[str, object]], attempted: dict[Path, bool],
+) -> tuple[list[dict[str, str]], set[tuple[str, str]]]:
+    """Review all standard responses and block setups with strong disagreement."""
+    rows: list[dict[str, str]] = []
+    blocked: set[tuple[str, str]] = set()
+    for plan in plans:
+        channel = str(plan["channel"]).upper()
+        setup = str(plan["setup"])
+        setup_rows: list[dict[str, str]] = []
+        valid: list[tuple[dict[str, object], Path]] = []
+        for standard in plan["standards"]:
+            path = Path(standard["sensfile"])
+            status, detail = "valid", "finite fitted sensitivity response"
+            if not attempted.get(path, False):
+                _, reason = validate_sensfunc(path) if path.exists() else (False, "sensitivity file was not built")
+                status, detail = "rejected", reason
+            else:
+                valid.append((standard, path))
+            row = {
+                "channel": channel,
+                "setup": setup,
+                "standard_filename": str(standard["filename"]),
+                "standard_target": str(standard["target"]),
+                "status": status,
+                "detail": detail,
+            }
+            rows.append(row)
+            setup_rows.append(row)
+
+        offsets = [
+            offset
+            for index, (_, first) in enumerate(valid)
+            for _, second in valid[:index]
+            if (offset := central_sensitivity_offset(first, second)) is not None
+        ]
+        if offsets and max(offsets) > MAX_SENSITIVITY_DISAGREEMENT_MAG:
+            maximum = max(offsets)
+            detail = (
+                f"standard responses disagree by up to {maximum:.2f} mag in the central wavelength range"
+            )
+            for row in setup_rows:
+                if row["status"] == "valid":
+                    row["status"] = "review required"
+                    row["detail"] = detail
+            blocked.add((str(plan["channel"]).lower(), setup))
+    return rows, blocked
+
+
+def write_sensitivity_review(path: Path, rows: list[dict[str, str]]) -> None:
+    """Write the standard-response quality record for one observing night."""
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=SENSITIVITY_REVIEW_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def find_spec1d(science_dir: Path, raw_filename: str) -> Path | None:
@@ -275,9 +412,13 @@ def ensure_sensfunc(
         return attempted[sensfile]
     sensfile.parent.mkdir(parents=True, exist_ok=True)
     if sensfile.exists() and not force:
-        print(f"Sensitivity function kept: {sensfile.name}")
-        attempted[sensfile] = True
-        return True
+        valid, reason = validate_sensfunc(sensfile)
+        if valid:
+            print(f"Sensitivity function kept: {sensfile.name}")
+        else:
+            print(f"WARNING: rejecting {sensfile.name}: {reason}")
+        attempted[sensfile] = valid
+        return valid
     print(f"Building sensitivity function: {sensfile.name}")
     success = run_command(
         pypeit_command("pypeit_sensfunc", str(standard["spec1d"]), "-o", str(sensfile)),
@@ -285,18 +426,23 @@ def ensure_sensfunc(
     )
     if not success:
         print(f"WARNING: sensitivity function failed for {standard['target']}")
-    attempted[sensfile] = success
-    return success
+        attempted[sensfile] = False
+        return False
+    valid, reason = validate_sensfunc(sensfile)
+    if not valid:
+        print(f"WARNING: rejecting {sensfile.name}: {reason}")
+    attempted[sensfile] = valid
+    return valid
 
 
-def build_selected_sensfuncs(
+def build_candidate_sensfuncs(
     plans: list[dict[str, object]], force: bool,
 ) -> dict[Path, bool]:
-    """Build the standards currently selected in the reviewed association plan."""
+    """Build and validate every available standard in each setup."""
     attempted: dict[Path, bool] = {}
     for plan in plans:
-        for group in plan["groups"]:
-            ensure_sensfunc(plan, group["standard"], force, attempted)
+        for standard in plan["standards"]:
+            ensure_sensfunc(plan, standard, force, attempted)
     return attempted
 
 
@@ -419,18 +565,29 @@ def main() -> int:
         print(f"Then run: python scripts/ngps_flux_calibrate.py {args.date} --run")
         return 0
 
-    attempted = build_selected_sensfuncs(plans, args.force_sensfunc)
+    attempted = build_candidate_sensfuncs(plans, args.force_sensfunc)
     fallbacks, unresolved = propose_fallbacks(plans, args.force_sensfunc, attempted)
+    review_rows, blocked_setups = sensitivity_review(plans, attempted)
+    sensitivity_review_file = root / "sensitivity_review.csv"
+    write_sensitivity_review(sensitivity_review_file, review_rows)
+    blocked_groups = [
+        str(group["id"])
+        for plan in plans
+        if (str(plan["channel"]).lower(), str(plan["setup"])) in blocked_setups
+        for group in plan["groups"]
+    ]
     if fallbacks:
         write_associations(associations_file, proposal_rows(plans))
         print("\nAutomatic fallback proposal written")
         print(f"Review: {associations_file}")
         print("No spectra were flux-calibrated. Run the dry run, then run --run again.")
         return 0
+    unresolved.extend(blocked_groups)
     if unresolved:
-        print("\nFlux calibration stopped. No usable fallback standard was found for:")
-        for identifier in unresolved:
+        print("\nFlux calibration stopped. No safe standard can be used for:")
+        for identifier in sorted(set(unresolved)):
             print(f"  {identifier}")
+        print(f"Review: {sensitivity_review_file}")
         return 1
 
     sensfuncs = sum(attempted.values())
