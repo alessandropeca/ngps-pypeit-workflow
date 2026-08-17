@@ -221,6 +221,13 @@ def association_key(channel: str, setup: str, identifier: str) -> tuple[str, str
     return channel.lower(), setup, identifier
 
 
+def plan_group_key(plan: dict[str, object], group: dict[str, object]) -> tuple[str, str, str]:
+    """Return an unambiguous key for one target group in one configuration."""
+    return association_key(
+        str(plan["channel"]), str(plan["setup"]), str(group["id"]),
+    )
+
+
 def read_associations(path: Path) -> dict[tuple[str, str, str], dict[str, str]]:
     """Read a reviewed association file keyed by channel, setup, and group."""
     with path.open(newline="") as handle:
@@ -448,10 +455,10 @@ def build_candidate_sensfuncs(
 
 def propose_fallbacks(
     plans: list[dict[str, object]], force: bool, attempted: dict[Path, bool],
-) -> tuple[int, list[str]]:
+) -> tuple[int, list[tuple[str, str, str]]]:
     """Replace failed choices with the nearest standard that builds successfully."""
     changed = 0
-    unresolved: list[str] = []
+    unresolved: list[tuple[str, str, str]] = []
     for plan in plans:
         for group in plan["groups"]:
             selected = group["standard"]
@@ -470,7 +477,7 @@ def propose_fallbacks(
                     replacement = candidate
                     break
             if replacement is None:
-                unresolved.append(str(group["id"]))
+                unresolved.append(plan_group_key(plan, group))
                 continue
             group["standard"] = replacement
             group["manual"] = False
@@ -496,14 +503,15 @@ def quarantine_fluxed_group(plan: dict[str, object], group: dict[str, object]) -
 
 
 def flux_calibrate(
-    plans: list[dict[str, object]], date: str, skipped_groups: set[str],
+    plans: list[dict[str, object]], date: str,
+    skipped_groups: set[tuple[str, str, str]],
 ) -> int:
     """Copy and calibrate safe groups, keeping unsafe products out of Fluxed/."""
     total = 0
     for plan in plans:
         rows = []
         for group in plan["groups"]:
-            if str(group["id"]) in skipped_groups:
+            if plan_group_key(plan, group) in skipped_groups:
                 quarantine_fluxed_group(plan, group)
                 continue
             standard = group["standard"]
@@ -591,12 +599,12 @@ def main() -> int:
     review_rows, blocked_setups = sensitivity_review(plans, attempted)
     sensitivity_review_file = root / "sensitivity_review.csv"
     write_sensitivity_review(sensitivity_review_file, review_rows)
-    blocked_groups = [
-        str(group["id"])
+    blocked_groups = {
+        plan_group_key(plan, group)
         for plan in plans
         if (str(plan["channel"]).lower(), str(plan["setup"])) in blocked_setups
         for group in plan["groups"]
-    ]
+    }
     if fallbacks:
         write_associations(associations_file, proposal_rows(plans))
         print("\nAutomatic fallback associations recorded")
@@ -606,7 +614,7 @@ def main() -> int:
         print("\nSome configurations cannot be flux-calibrated safely:")
         for plan in plans:
             for group in plan["groups"]:
-                if str(group["id"]) not in skipped_groups:
+                if plan_group_key(plan, group) not in skipped_groups:
                     continue
                 print(
                     f"  {group['target']} | {str(plan['channel']).upper()} | {plan['setup']}: "
@@ -624,7 +632,7 @@ def main() -> int:
         len(group["members"])
         for plan in plans
         for group in plan["groups"]
-        if str(group["id"]) in skipped_groups
+        if plan_group_key(plan, group) in skipped_groups
     )
     expected_fluxed = assigned - skipped_spectra
     if fluxed != expected_fluxed:
