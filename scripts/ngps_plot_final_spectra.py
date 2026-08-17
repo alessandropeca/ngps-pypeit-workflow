@@ -113,7 +113,7 @@ def save_plot(
     """Save one complete U/G/R/I QA plot and optionally open its interactive window."""
     spectra = {channel: read_spectrum(paths[channel]) for channel in CHANNELS}
 
-    figure, axes = plt.subplots(len(CHANNELS), 1, figsize=(12, 10.5))
+    figure, axes = plt.subplots(len(CHANNELS), 1, figsize=(10.0, 7.0))
     for axis, channel in zip(axes, CHANNELS):
         wave, flux = spectra[channel]
         axis.plot(wave, flux, lw=0.8, color=COLOURS[channel])
