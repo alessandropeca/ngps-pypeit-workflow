@@ -100,36 +100,29 @@ def display_limits(fluxes: list[np.ndarray]) -> tuple[float, float]:
 
 
 def display_spectrum(
-    wave: np.ndarray, flux: np.ndarray, reject_edge_outliers: bool,
+    wave: np.ndarray, flux: np.ndarray, channel: str, no_ug_edges: bool,
 ) -> tuple[np.ndarray, np.ndarray, int]:
-    """Optionally omit extreme wavelength-edge artifacts from a plot only."""
-    if not reject_edge_outliers or len(flux) < 40:
+    """Apply the optional fixed U/G display ranges without changing FITS data."""
+    if not no_ug_edges or channel not in {"u", "g"}:
         return wave, flux, 0
-    edge_size = max(5, int(np.ceil(len(flux) * 0.10)))
-    interior = flux[edge_size:-edge_size]
-    median = float(np.median(interior))
-    mad = float(np.median(np.abs(interior - median)))
-    spread = max(1.4826 * mad, float(np.percentile(interior, 84) - np.percentile(interior, 16)))
-    if not np.isfinite(spread) or spread <= 0:
-        return wave, flux, 0
-    edge = np.zeros(len(flux), dtype=bool)
-    edge[:edge_size] = True
-    edge[-edge_size:] = True
-    keep = ~(edge & (np.abs(flux - median) > 25.0 * spread))
+    if channel == "u":
+        keep = (wave >= 3100.0) & (wave <= 4350.0)
+    else:
+        keep = wave >= 4280.0
     return wave[keep], flux[keep], int((~keep).sum())
 
 
 def save_plot(
     root: Path, target: str, configuration: str, paths: dict[str, Path], show: bool,
-    robust_y: bool,
+    no_ug_edges: bool,
 ) -> tuple[Path, Path]:
     """Save available channel coadds, using an empty panel for an unavailable channel."""
     spectra: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for channel, path in paths.items():
         wave, flux = read_spectrum(path)
-        wave, flux, removed = display_spectrum(wave, flux, robust_y)
+        wave, flux, removed = display_spectrum(wave, flux, channel, no_ug_edges)
         if removed:
-            print(f"{channel.upper()} {target} {configuration}: omitted {removed} extreme edge sample(s) from the plot only")
+            print(f"{channel.upper()} {target} {configuration}: omitted {removed} sample(s) outside the selected display range")
         spectra[channel] = wave, flux
 
     figure, axes = plt.subplots(len(CHANNELS), 1, figsize=(10.0, 7.0))
@@ -204,8 +197,8 @@ def main() -> int:
         "--configuration", help="NGPS setup letter for one target when multiple configurations exist, e.g. B",
     )
     parser.add_argument(
-        "--robust-y", action="store_true",
-        help="Omit extreme edge artifacts from plot limits without changing FITS data.",
+        "--noUGedges", "--no-ug-edges", dest="no_ug_edges", action="store_true",
+        help="Plot U from 3100 to 4350 A and G from 4280 A onward without changing FITS data.",
     )
     args = parser.parse_args()
     if args.all and args.configuration:
@@ -217,7 +210,7 @@ def main() -> int:
             configuration, paths = choose_configuration(
                 completed_coadds(root, args.target), args.configuration
             )
-            pdf, png = save_plot(root, args.target, configuration, paths, show=True, robust_y=args.robust_y)
+            pdf, png = save_plot(root, args.target, configuration, paths, show=True, no_ug_edges=args.no_ug_edges)
         except ValueError as error:
             parser.error(str(error))
         print_saved_plot(args.target, configuration, paths, pdf, png)
@@ -232,7 +225,7 @@ def main() -> int:
     for target in targets:
         for configuration, paths in sorted(completed_coadds(root, target).items()):
             try:
-                pdf, png = save_plot(root, target, configuration, paths, show=False, robust_y=args.robust_y)
+                pdf, png = save_plot(root, target, configuration, paths, show=False, no_ug_edges=args.no_ug_edges)
             except ValueError as error:
                 print(f"Failed to plot {target} | configuration {configuration}: {error}")
                 failed += 1

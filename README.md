@@ -290,12 +290,12 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_plot_final_spectra.py "$DATE" --target 'NGC4102' --configuration C
    ```
 
-   If extreme points at the wavelength edges make a panel difficult to read,
-   regenerate the plots with display-only edge-artifact filtering. This does not
-   modify any FITS spectrum or remove valid interior features.
+   To omit the unreliable U/G wavelength edges from the display, plot U only
+   from 3100–4350 Å and G from 4280 Å onward. This does not modify any FITS
+   spectrum.
 
    ```bash
-   python scripts/ngps_plot_final_spectra.py "$DATE" --all --robust-y
+   python scripts/ngps_plot_final_spectra.py "$DATE" --all --noUGedges
    ```
 
 ## Additional notes
