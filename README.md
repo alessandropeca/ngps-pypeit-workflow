@@ -290,6 +290,13 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_plot_final_spectra.py "$DATE" --target 'NGC4102' --configuration C
    ```
 
+   If isolated bad points make a panel difficult to read, regenerate the plots
+   with display-only robust y-limits. This does not modify any FITS spectrum.
+
+   ```bash
+   python scripts/ngps_plot_final_spectra.py "$DATE" --all --robust-y
+   ```
+
 ## Additional notes
 
 Three slicer traces belong to one raw exposure. Obs numbers such as 0121, 0122,

@@ -91,16 +91,20 @@ def read_spectrum(path: Path) -> tuple[np.ndarray, np.ndarray]:
     return wave[good], flux[good]
 
 
-def display_limits(fluxes: list[np.ndarray]) -> tuple[float, float]:
-    """Include the full range of all valid flux samples on a linear axis."""
+def display_limits(fluxes: list[np.ndarray], robust: bool) -> tuple[float, float]:
+    """Return full or display-robust linear limits without altering spectra."""
     values = np.concatenate(fluxes)
-    low, high = np.nanmin(values), np.nanmax(values)
+    if robust:
+        low, high = np.nanpercentile(values, (0.5, 99.5))
+    else:
+        low, high = np.nanmin(values), np.nanmax(values)
     padding = 0.08 * (high - low) if high > low else max(abs(high) * 0.1, 1.0)
     return low - padding, high + padding
 
 
 def save_plot(
     root: Path, target: str, configuration: str, paths: dict[str, Path], show: bool,
+    robust_y: bool,
 ) -> tuple[Path, Path]:
     """Save available channel coadds, using an empty panel for an unavailable channel."""
     spectra = {channel: read_spectrum(path) for channel, path in paths.items()}
@@ -125,7 +129,7 @@ def save_plot(
         axis.plot(wave, flux, lw=0.8, color=COLOURS[channel])
         axis.axhline(0, color="0.65", lw=0.7)
         axis.set_xlim(np.min(wave), np.max(wave))
-        axis.set_ylim(*display_limits([flux]))
+        axis.set_ylim(*display_limits([flux], robust_y))
         axis.set_title(f"{channel.upper()} coadd", loc="left", color=COLOURS[channel])
     figure.suptitle(
         f"{target} | final available U/G/R/I coadds | configuration {configuration}",
@@ -166,7 +170,11 @@ def main() -> int:
     selection.add_argument("--target", help="Save and open one target plot, e.g. MGC+04-48-002")
     selection.add_argument("--all", action="store_true", help="Save plots for every target/configuration with a completed coadd")
     parser.add_argument(
-        "--configuration", help="NGPS setup letter for one target when multiple complete sets exist, e.g. B",
+        "--configuration", help="NGPS setup letter for one target when multiple configurations exist, e.g. B",
+    )
+    parser.add_argument(
+        "--robust-y", action="store_true",
+        help="Use the 0.5th to 99.5th percentile for plot y-limits without changing FITS data.",
     )
     args = parser.parse_args()
     if args.all and args.configuration:
@@ -178,7 +186,7 @@ def main() -> int:
             configuration, paths = choose_configuration(
                 completed_coadds(root, args.target), args.configuration
             )
-            pdf, png = save_plot(root, args.target, configuration, paths, show=True)
+            pdf, png = save_plot(root, args.target, configuration, paths, show=True, robust_y=args.robust_y)
         except ValueError as error:
             parser.error(str(error))
         print_saved_plot(args.target, configuration, paths, pdf, png)
@@ -193,7 +201,7 @@ def main() -> int:
     for target in targets:
         for configuration, paths in sorted(completed_coadds(root, target).items()):
             try:
-                pdf, png = save_plot(root, target, configuration, paths, show=False)
+                pdf, png = save_plot(root, target, configuration, paths, show=False, robust_y=args.robust_y)
             except ValueError as error:
                 print(f"Failed to plot {target} | configuration {configuration}: {error}")
                 failed += 1
