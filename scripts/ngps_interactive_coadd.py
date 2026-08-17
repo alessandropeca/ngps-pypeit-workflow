@@ -23,6 +23,11 @@ from astropy.io import fits
 from matplotlib.widgets import Button, CheckButtons
 
 
+COADD_REVIEW_FIELDS = (
+    "target", "channel", "setup", "exposures", "status", "reason", "notes",
+)
+
+
 @dataclass
 class Candidate:
     raw_filename: str
@@ -173,6 +178,88 @@ def find_observation_groups(
     return [
         ObservationGroup(name, channel_name, setup_name, sorted(items, key=lambda row: row["mjd"]))
         for (name, channel_name, setup_name), items in sorted(groups.items())
+    ]
+
+
+def review_key(group: ObservationGroup) -> tuple[str, str, str]:
+    return group.target.casefold(), group.channel.lower(), group.setup
+
+
+def review_exposures(group: ObservationGroup) -> str:
+    return ",".join(exposure_label(row["filename"]) for row in group.rows)
+
+
+def review_path(root: Path) -> Path:
+    return root / "coadd_review.csv"
+
+
+def group_review_row(root: Path, group: ObservationGroup) -> dict[str, str]:
+    """Create the initial review decision for a possible coadd."""
+    exposures = review_exposures(group)
+    row = {
+        "target": group.target,
+        "channel": group.channel.upper(),
+        "setup": group.setup,
+        "exposures": exposures,
+        "status": "review",
+        "reason": "repeat science exposures",
+        "notes": "",
+    }
+    if len(group.rows) < 2:
+        row["status"] = "discard"
+        row["reason"] = "only one science exposure"
+        return row
+    fluxed = root / f"manual_setup_{group.channel}" / group.setup / "Fluxed"
+    missing = [
+        exposure_label(item["filename"])
+        for item in group.rows
+        if find_spec1d(fluxed, item["filename"]) is None
+    ]
+    if missing:
+        row["status"] = "discard"
+        row["reason"] = f"missing Fluxed spectrum: {','.join(missing)}"
+    return row
+
+
+def update_coadd_review(root: Path, groups: list[ObservationGroup]) -> dict[tuple[str, str, str], dict[str, str]]:
+    """Create or update the persistent, user-editable coadd-review table."""
+    path = review_path(root)
+    existing: dict[tuple[str, str, str], dict[str, str]] = {}
+    if path.exists():
+        with path.open(newline="") as handle:
+            for row in csv.DictReader(handle):
+                if set(COADD_REVIEW_FIELDS) - set(row):
+                    raise RuntimeError(f"Invalid coadd review file: {path}")
+                existing[(row["target"].casefold(), row["channel"].lower(), row["setup"])] = row
+
+    updated: list[dict[str, str]] = []
+    for group in groups:
+        key = review_key(group)
+        generated = group_review_row(root, group)
+        saved = existing.get(key)
+        if saved is not None and saved["exposures"] == generated["exposures"]:
+            generated["status"] = saved["status"]
+            generated["reason"] = saved["reason"]
+            generated["notes"] = saved["notes"]
+        updated.append(generated)
+
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=COADD_REVIEW_FIELDS)
+        writer.writeheader()
+        writer.writerows(updated)
+    return {
+        (row["target"].casefold(), row["channel"].lower(), row["setup"]): row
+        for row in updated
+    }
+
+
+def reviewable_groups(
+    groups: list[ObservationGroup], review: dict[tuple[str, str, str], dict[str, str]],
+) -> list[ObservationGroup]:
+    """Return only repeat groups that have not been discarded in the review file."""
+    return [
+        group for group in groups
+        if len(group.rows) >= 2 and review[review_key(group)]["status"].casefold() == "review"
     ]
 
 
@@ -376,11 +463,20 @@ def main() -> int:
         parser.error(f"Inventory not found: {inventory}; run ngps_inventory_standards.py first")
     with inventory.open() as handle:
         rows = list(csv.DictReader(handle))
+    all_groups = find_observation_groups(rows)
+    try:
+        coadd_review = update_coadd_review(root, all_groups)
+    except RuntimeError as error:
+        parser.error(str(error))
     if args.list_groups:
         groups = find_observation_groups(rows, channel=args.channel, setup=args.setup)
+        groups = reviewable_groups(groups, coadd_review)
         if not groups:
-            parser.error("No science observation groups found")
+            parser.error("No reviewable repeat-observation groups found")
         print_groups(groups)
+        discarded = sum(1 for row in coadd_review.values() if row["status"].casefold() == "discard")
+        print(f"\nCoadd review file: {review_path(root)}")
+        print(f"Automatically or manually discarded groups: {discarded}")
         return 0
 
     if args.target is None:
@@ -388,8 +484,9 @@ def main() -> int:
     groups = find_observation_groups(
         rows, args.target, args.channel, args.setup, args.exposure
     )
+    groups = reviewable_groups(groups, coadd_review)
     if not groups:
-        parser.error("No matching repeat observations found")
+        parser.error("No matching reviewable repeat observations found")
     if args.summary:
         print_groups(groups)
         for group in groups:

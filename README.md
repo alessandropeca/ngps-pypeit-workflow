@@ -166,8 +166,18 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
 5. Find repeated observations by target name, then review and coadd them.
 
+   This creates `$NIGHT/coadd_review.csv` and prints the reviewable coadds.
+   Each row is one target, channel, and setup. Single exposures and groups
+   without Fluxed spectra are automatically marked `discard`. Add a note or
+   change `status` to `discard` for any observation-log problem before review.
+
    ```bash
    python scripts/ngps_interactive_coadd.py "$DATE" --list-groups
+   ```
+
+   Review the CSV, then open one target:
+
+   ```bash
    python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002'
    ```
 

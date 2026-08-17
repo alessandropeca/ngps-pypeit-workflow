@@ -115,3 +115,35 @@ def test_flux_plan_proposes_a_reviewable_fallback_after_a_standard_failure():
     assert unresolved == []
     assert group["standard"] is fallback
     assert group["status"] == "automatic fallback"
+
+
+def test_coadd_review_discards_singletons_and_keeps_fluxed_repeats():
+    source = ROOT / "scripts" / "ngps_interactive_coadd.py"
+    spec = importlib.util.spec_from_file_location("ngps_interactive_coadd", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    singleton = module.ObservationGroup(
+        "target_a", "r", "p200_ngps_r_A",
+        [{"filename": "ngps_0001.fits", "mjd": "1.0"}],
+    )
+    repeated = module.ObservationGroup(
+        "target_b", "r", "p200_ngps_r_B",
+        [
+            {"filename": "ngps_0002.fits", "mjd": "2.0"},
+            {"filename": "ngps_0003.fits", "mjd": "3.0"},
+        ],
+    )
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        fluxed = root / "manual_setup_r" / "p200_ngps_r_B" / "Fluxed"
+        fluxed.mkdir(parents=True)
+        (fluxed / "spec1d_ngps_0002-test.fits").touch()
+        (fluxed / "spec1d_ngps_0003-test.fits").touch()
+        review = module.update_coadd_review(root, [singleton, repeated])
+
+    assert review[module.review_key(singleton)]["status"] == "discard"
+    assert review[module.review_key(singleton)]["reason"] == "only one science exposure"
+    assert module.reviewable_groups([singleton, repeated], review) == [repeated]
