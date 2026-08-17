@@ -509,10 +509,11 @@ def main() -> int:
     parser.add_argument("--list-groups", action="store_true", help="List target/channel/setup groups and exit")
     parser.add_argument("--summary", action="store_true", help="Print candidates without opening the review window")
     parser.add_argument("--auto", action="store_true", help="Skip review windows and save automatic coadd-review PDFs")
-    parser.add_argument("--all", action="store_true", help="Automatically coadd every reviewable group. Requires --auto")
+    parser.add_argument(
+        "--all", action="store_true",
+        help="Review every reviewable group. Add --auto to accept and coadd all groups without prompts.",
+    )
     args = parser.parse_args()
-    if args.all and not args.auto:
-        parser.error("--all requires --auto")
     if args.all and args.target:
         parser.error("--all processes every reviewable group. Do not combine it with --target")
 
@@ -564,6 +565,7 @@ def main() -> int:
         return 0
 
     selected_groups = groups if args.all else choose_groups(groups)
+    batch_auto = args.all and args.auto
     completed = 0
     for group in selected_groups:
         candidates, central_slit, standard_spat = candidates_for_group(root, rows, group)
@@ -590,7 +592,7 @@ def main() -> int:
             f"Accepted {exposure_count} of {len(group.rows)} repeat exposure(s), "
             f"containing {len(accepted)} slicer trace(s)."
         )
-        if not args.all and not ask_yes_no("Write this coadd selection and PypeIt input file?"):
+        if not batch_auto and not ask_yes_no("Write this coadd selection and PypeIt input file?"):
             print("No files were written for this group.")
             continue
         out_dir = root / "Coadds" / (
@@ -603,7 +605,7 @@ def main() -> int:
             out_dir, group.target, group.channel, group.setup, central_slit, accepted
         )
         print(f"Coadd input: {coadd_file}\nExpected output: {output}")
-        if args.all or ask_yes_no("Run PypeIt coaddition now?"):
+        if batch_auto or ask_yes_no("Run PypeIt coaddition now?"):
             status = run_coadd(coadd_file, out_dir)
             if status != 0:
                 return status
@@ -613,7 +615,8 @@ def main() -> int:
             write_coadd_review(review_path(root), list(coadd_review.values()))
             completed += 1
     if args.all:
-        print(f"\nAutomatic coadds completed: {completed}")
+        label = "Automatic coadds" if batch_auto else "Coadds"
+        print(f"\n{label} completed: {completed}")
     return 0
 
 

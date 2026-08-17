@@ -196,6 +196,12 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --auto
    ```
 
+   To open the review window for every reviewable group, one after another:
+
+   ```bash
+   python scripts/ngps_interactive_coadd.py "$DATE" --all
+   ```
+
    After reviewing `coadd_review.csv`, automatically write and run every
    reviewable coadd. This also saves one automatic review PDF per coadd. Existing
    coadd directories are kept unchanged.
