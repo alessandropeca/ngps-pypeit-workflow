@@ -180,7 +180,7 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
    After reviewing `coadd_review.csv`, automatically write and run every
    reviewable coadd. This saves one automatic review PDF per coadd. Existing
-   coadd directories are kept unchanged. Review PDFs are saved in
+   coadd selections and final coadded FITS files are replaced. Review PDFs are saved in
    `$NIGHT/CoaddQA/<target>/`. For example, the R-channel B-setup PDF for
    `MGC+04-48-002` is
    `~/ngps_data/work/20260623/CoaddQA/MGC_04-48-002/MGC_04-48-002_r_p200_ngps_r_B_coadd_review.pdf`.
@@ -209,9 +209,9 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    The window has one panel per repeat exposure (e.g. 0121, 0122, 0123). Each
    panel contains that exposure’s three NGPS slicer traces. The selection
    buttons include or exclude one whole exposure, keeping its three traces
-   together. The **Accept selection** button saves a review PDF and continues
-   to the write prompt. The **Cancel** button, or closing the window, writes no
-   selection or coadd product.
+   together. The **Accept selection** button saves a review PDF, replaces that
+   group's selection, and runs its PypeIt coadd. The **Cancel** button, or
+   closing the window, writes no selection or coadd product.
 
    To work with one target only, open its review window:
 
@@ -220,9 +220,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    ```
 
    After `--all --auto`, use this same command to recheck one target. The
-   **Accept selection** button overwrites its review PDF. Choosing **Yes** at
-   both prompts replaces only that target, channel, and setup's coadd selection
-   and final coadded FITS file. Its review PDF is in
+   **Accept selection** button overwrites only that target, channel, and
+   setup's review PDF, coadd selection, and final coadded FITS file. Its review PDF is in
    `$NIGHT/CoaddQA/<target>/`, for example
    `~/ngps_data/work/20260623/CoaddQA/MGC_04-48-002/MGC_04-48-002_r_p200_ngps_r_B_coadd_review.pdf`.
 
@@ -231,6 +230,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    ```bash
    python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --auto
    ```
+
+   This writes or replaces the selected coadd files and runs PypeIt immediately.
 
    To preselect observations for one target:
 

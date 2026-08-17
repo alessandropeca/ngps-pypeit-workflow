@@ -48,19 +48,6 @@ class ObservationGroup:
     rows: list[dict[str, str]]
 
 
-def ask_yes_no(question: str, default: bool = False) -> bool:
-    suffix = " [Y/n]: " if default else " [y/N]: "
-    while True:
-        answer = input(question + suffix).strip().lower()
-        if not answer:
-            return default
-        if answer in {"y", "yes"}:
-            return True
-        if answer in {"n", "no"}:
-            return False
-        print("Please enter y or n.")
-
-
 def safe_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_")
 
@@ -446,7 +433,7 @@ def review(
         len(exposures) + 1, 1, figsize=(10.2, height), sharex=True,
     )
     figure.subplots_adjust(
-        left=0.24 if interactive else 0.08,
+        left=0.19 if interactive else 0.08,
         right=0.98, bottom=0.08, top=0.91, hspace=0.38,
     )
     axes = np.atleast_1d(axes)
@@ -484,7 +471,7 @@ def review(
         )
         panel.legend(fontsize=7, loc="upper right")
     overlay.legend(ncol=min(4, len(exposures)), fontsize=8, loc="upper right")
-    axes[-1].set_xlabel("Vacuum wavelength (Å)")
+    axes[-1].set_xlabel("Wavelength (Å)")
 
     result = {"accepted": not interactive}
     control_axes = []
@@ -492,10 +479,10 @@ def review(
     if interactive:
         labels = [exposure_label(exposure) for exposure in exposures]
         label_to_exposure = dict(zip(labels, exposures))
-        check_axis = figure.add_axes((0.02, 0.30, 0.20, 0.56))
+        check_axis = figure.add_axes((0.015, 0.30, 0.15, 0.56))
         control_axes.append(check_axis)
         checks = CheckButtons(check_axis, labels, [included[exposure] for exposure in exposures])
-        check_axis.set_title("Include exposure\n(all its slices)", fontsize=9)
+        check_axis.set_title("Include\nexposure", fontsize=9)
         for label in checks.labels:
             label.set_fontsize(7)
 
@@ -514,8 +501,8 @@ def review(
             plt.close(figure)
 
         checks.on_clicked(toggle)
-        accept_axis = figure.add_axes((0.03, 0.20, 0.17, 0.055))
-        cancel_axis = figure.add_axes((0.03, 0.12, 0.17, 0.055))
+        accept_axis = figure.add_axes((0.025, 0.20, 0.13, 0.055))
+        cancel_axis = figure.add_axes((0.025, 0.12, 0.13, 0.055))
         control_axes.extend((accept_axis, cancel_axis))
         accept_button = Button(accept_axis, "Accept selection", color="#D7F2DF", hovercolor="#BCE8CA")
         cancel_button = Button(cancel_axis, "Cancel", color="#FFD9D9", hovercolor="#F2BFBF")
@@ -690,51 +677,38 @@ def main() -> int:
             f"Accepted {exposure_count} of {len(group.rows)} repeat exposure(s), "
             f"containing {len(accepted)} slicer trace(s)."
         )
-        out_dir, expected_output = coadd_paths(root, group)
-        if out_dir.exists():
-            write_question = "Replace this group's existing coadd selection and PypeIt input file?"
-        else:
-            write_question = "Write this coadd selection and PypeIt input file?"
-        if not batch_auto and not ask_yes_no(write_question):
-            print("No files were written for this group.")
-            continue
-        if batch_auto and out_dir.exists():
-            print(f"Coadd output already exists. Keeping it unchanged: {out_dir}")
-            run_report.append(report_row(group, "skipped", expected_output, "existing coadd directory kept unchanged"))
-            continue
+        out_dir, _ = coadd_paths(root, group)
         coadd_file, output = write_coadd_input(
             out_dir, group.target, group.channel, group.setup, central_slit, accepted
         )
-        print(f"Coadd input: {coadd_file}\nExpected output: {output}")
-        if batch_auto or ask_yes_no("Run PypeIt coaddition now?"):
-            try:
-                status = run_coadd(coadd_file, out_dir)
-            except OSError as error:
-                status = 1
-                failure_detail = str(error)
-            else:
-                failure_detail = f"PypeIt returned status {status}"
-            if status != 0:
-                if batch_auto:
-                    run_report.append(report_row(group, "failed", output, failure_detail))
-                    failures += 1
-                    continue
-                return status
-            if not output.is_file():
-                message = "PypeIt returned success but no final coadded FITS was written"
-                if batch_auto:
-                    run_report.append(report_row(group, "failed", output, message))
-                    failures += 1
-                    continue
-                print(message)
-                return 1
-            review_row = coadd_review[review_key(group)]
-            review_row["status"] = "coadded"
-            review_row["reason"] = "PypeIt coadd completed"
-            write_coadd_review(review_path(root), list(coadd_review.values()))
-            completed += 1
+        try:
+            status = run_coadd(coadd_file, out_dir)
+        except OSError as error:
+            status = 1
+            failure_detail = str(error)
+        else:
+            failure_detail = f"PypeIt returned status {status}"
+        if status != 0:
             if batch_auto:
-                run_report.append(report_row(group, "completed", output, "PypeIt coadd completed"))
+                run_report.append(report_row(group, "failed", output, failure_detail))
+                failures += 1
+                continue
+            return status
+        if not output.is_file():
+            message = "PypeIt returned success but no final coadded FITS was written"
+            if batch_auto:
+                run_report.append(report_row(group, "failed", output, message))
+                failures += 1
+                continue
+            print(message)
+            return 1
+        review_row = coadd_review[review_key(group)]
+        review_row["status"] = "coadded"
+        review_row["reason"] = "PypeIt coadd completed"
+        write_coadd_review(review_path(root), list(coadd_review.values()))
+        completed += 1
+        if batch_auto:
+            run_report.append(report_row(group, "completed", output, "PypeIt coadd completed"))
     if args.all:
         label = "Automatic coadds" if batch_auto else "Coadds"
         print(f"\n{label} completed: {completed}")
