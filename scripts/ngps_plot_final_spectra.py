@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import re
 from pathlib import Path
@@ -38,11 +39,16 @@ def completed_coadds(root: Path, target: str) -> dict[str, dict[str, Path]]:
     return found
 
 
+def complete_configurations(found: dict[str, dict[str, Path]]) -> dict[str, dict[str, Path]]:
+    """Return only configurations with all four final channel coadds."""
+    return {key: value for key, value in found.items() if set(value) == set(CHANNELS)}
+
+
 def choose_configuration(
     found: dict[str, dict[str, Path]], requested: str | None,
 ) -> tuple[str, dict[str, Path]]:
     """Choose one complete U/G/R/I configuration, without guessing among several."""
-    complete = {key: value for key, value in found.items() if set(value) == set(CHANNELS)}
+    complete = complete_configurations(found)
     if requested is not None:
         configuration = requested.upper()
         if configuration not in complete:
@@ -61,6 +67,18 @@ def choose_configuration(
         raise ValueError(f"No complete U/G/R/I coadd set found for this target. Found: {details}")
     choices = ", ".join(sorted(complete))
     raise ValueError(f"More than one complete configuration is available: {choices}. Use --configuration.")
+
+
+def completed_targets(root: Path) -> list[str]:
+    """Read target names from the completed coadd-review table."""
+    review = root / "coadd_review.csv"
+    if not review.is_file():
+        raise ValueError(f"Coadd review file not found: {review}")
+    with review.open(newline="") as handle:
+        return sorted({
+            row["target"] for row in csv.DictReader(handle)
+            if row.get("status", "").casefold() == "coadded"
+        })
 
 
 def read_spectrum(path: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -89,25 +107,11 @@ def display_limits(fluxes: list[np.ndarray]) -> tuple[float, float]:
     return low - padding, high + padding
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Save one U/G/R/I flux-versus-wavelength plot from final NGPS coadds."
-    )
-    parser.add_argument("date", help="UT date, e.g. 20260623")
-    parser.add_argument("--target", required=True, help="Target name, e.g. MGC+04-48-002")
-    parser.add_argument(
-        "--configuration", help="NGPS setup letter when multiple complete channel sets exist, e.g. B",
-    )
-    args = parser.parse_args()
-
-    root = Path(os.environ.get("NGPS_WORK_ROOT", Path.home() / "ngps_data" / "work")) / args.date
-    try:
-        configuration, paths = choose_configuration(
-            completed_coadds(root, args.target), args.configuration
-        )
-        spectra = {channel: read_spectrum(paths[channel]) for channel in CHANNELS}
-    except ValueError as error:
-        parser.error(str(error))
+def save_plot(
+    root: Path, target: str, configuration: str, paths: dict[str, Path], show: bool,
+) -> tuple[Path, Path]:
+    """Save one complete U/G/R/I QA plot and optionally open its interactive window."""
+    spectra = {channel: read_spectrum(paths[channel]) for channel in CHANNELS}
 
     figure, axes = plt.subplots(len(CHANNELS), 1, figsize=(12, 10.5))
     for axis, channel in zip(axes, CHANNELS):
@@ -120,25 +124,82 @@ def main() -> int:
         axis.set_title(f"{channel.upper()} coadd", loc="left", color=COLOURS[channel])
         axis.set_xlabel("Wavelength (Å)")
     figure.suptitle(
-        f"{args.target} | final separate U/G/R/I coadds | configuration {configuration}",
+        f"{target} | final separate U/G/R/I coadds | configuration {configuration}",
         fontsize=14,
     )
     figure.tight_layout(rect=(0, 0, 1, 0.97))
 
-    output_dir = root / "FinalQA" / safe_name(args.target)
+    output_dir = root / "FinalQA" / safe_name(target)
     output_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{safe_name(args.target)}_UGRI_{configuration}_coadds"
+    stem = f"{safe_name(target)}_UGRI_{configuration}_coadds"
     pdf = output_dir / f"{stem}.pdf"
     png = output_dir / f"{stem}.png"
     figure.savefig(pdf)
     figure.savefig(png, dpi=180)
+    if show:
+        print("Opening final-spectrum plot. Close the window when you are finished zooming or panning.")
+        plt.show()
     plt.close(figure)
 
-    print("Final U/G/R/I coadd plot saved")
+    return pdf, png
+
+
+def print_saved_plot(target: str, configuration: str, paths: dict[str, Path], pdf: Path, png: Path) -> None:
+    """Print one concise plot result and its source coadds."""
+    print(f"\nFinal U/G/R/I coadd plot saved: {target} | configuration {configuration}")
     for channel in CHANNELS:
         print(f"{channel.upper()}: {paths[channel]}")
     print(f"PDF: {pdf}")
     print(f"PNG: {png}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Save U/G/R/I flux-versus-wavelength plots from final NGPS coadds."
+    )
+    parser.add_argument("date", help="UT date, e.g. 20260623")
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--target", help="Save and open one target plot, e.g. MGC+04-48-002")
+    selection.add_argument("--all", action="store_true", help="Save plots for every complete target/configuration")
+    parser.add_argument(
+        "--configuration", help="NGPS setup letter for one target when multiple complete sets exist, e.g. B",
+    )
+    args = parser.parse_args()
+    if args.all and args.configuration:
+        parser.error("--configuration applies only with --target")
+
+    root = Path(os.environ.get("NGPS_WORK_ROOT", Path.home() / "ngps_data" / "work")) / args.date
+    if args.target:
+        try:
+            configuration, paths = choose_configuration(
+                completed_coadds(root, args.target), args.configuration
+            )
+            pdf, png = save_plot(root, args.target, configuration, paths, show=True)
+        except ValueError as error:
+            parser.error(str(error))
+        print_saved_plot(args.target, configuration, paths, pdf, png)
+        return 0
+
+    try:
+        targets = completed_targets(root)
+    except ValueError as error:
+        parser.error(str(error))
+    completed = 0
+    failed = 0
+    for target in targets:
+        for configuration, paths in sorted(complete_configurations(completed_coadds(root, target)).items()):
+            try:
+                pdf, png = save_plot(root, target, configuration, paths, show=False)
+            except ValueError as error:
+                print(f"Failed to plot {target} | configuration {configuration}: {error}")
+                failed += 1
+                continue
+            print_saved_plot(target, configuration, paths, pdf, png)
+            completed += 1
+    print(f"\nFinal U/G/R/I plots saved: {completed}")
+    if failed:
+        print(f"Final U/G/R/I plots failed: {failed}")
+        return 1
     return 0
 
 

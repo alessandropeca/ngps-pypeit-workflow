@@ -253,15 +253,23 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --channel r --setup p200_ngps_r_B --exposure 0121 --exposure 0123
    ```
 
-6. Plot the four separate final coadds for one target. The figure has one
-   flux-versus-wavelength panel per channel. It does not merge U/G/R/I or alter
-   the FITS spectra.
+6. Save the final U/G/R/I plots for every complete target and configuration.
+   This does not open graphic windows. The terminal lists every saved plot and
+   reports any channel coadd that cannot be plotted.
+
+   ```bash
+   python scripts/ngps_plot_final_spectra.py "$DATE" --all
+   ```
+
+   To save one target and open its graphic window, use:
 
    ```bash
    python scripts/ngps_plot_final_spectra.py "$DATE" --target 'MGC+04-48-002'
    ```
 
-   This saves a PDF and PNG in `$NIGHT/FinalQA/MGC_04-48-002/`, for example
+   Close the window when you are finished zooming or panning. The figure has one
+   flux-versus-wavelength panel per channel. It does not merge U/G/R/I or alter
+   the FITS spectra. It saves a PDF and PNG in `$NIGHT/FinalQA/MGC_04-48-002/`, for example
    `~/ngps_data/work/20260623/FinalQA/MGC_04-48-002/MGC_04-48-002_UGRI_B_coadds.pdf`.
    If a target has more than one complete configuration, choose one explicitly:
 
@@ -273,10 +281,14 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
 Three slicer traces belong to one raw exposure. Obs numbers such as 0121, 0122,
 and 0123 might be repeated exposures of the same source. Check the observation log.
-Coadd repeats within each channel/setup first, then correct telluric
-absorption. Keep the U, G, R, and I products separate. Telluric correction and
-four-channel merging are not automated yet, so the current final reproducible
-product is a reviewed, flux-calibrated coadd per target/channel/setup.
+Coadd repeats within each channel/setup first. Keep the U, G, R, and I products
+separate. The current final reproducible product is a reviewed, flux-calibrated
+coadd per target/channel/setup.
+
+## Planned extensions
+
+- Reviewed telluric correction after the channel coadds
+- Reviewed U/G/R/I merging
 
 For the fuller guide, including background and troubleshooting, see
 [NGPS_REDUCTION_GUIDE.md](docs/NGPS_REDUCTION_GUIDE.md).
