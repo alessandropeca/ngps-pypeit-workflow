@@ -311,18 +311,10 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_plot_final_spectra.py "$DATE" --all --manual --U 3100 4350 --G 4280 5900 --R 5800 8050 --I 7500 10450
    ```
 
-## Additional notes
-
-Three slicer traces belong to one raw exposure. Obs numbers such as 0121, 0122,
-and 0123 might be repeated exposures of the same source. Check the observation log.
-Coadd repeats within each channel/setup first. Keep the U, G, R, and I products
-separate. The current final reproducible product is a reviewed, flux-calibrated
-coadd per target/channel/setup.
-
 ## Planned extensions
 
-- Reviewed telluric correction after the channel coadds
-- Reviewed U/G/R/I merging
+- Telluric correction after the channel coadds
+- U/G/R/I merging
 
 For the fuller guide, including background and troubleshooting, see
 [NGPS_REDUCTION_GUIDE.md](docs/NGPS_REDUCTION_GUIDE.md).
