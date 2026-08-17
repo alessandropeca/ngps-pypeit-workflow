@@ -588,7 +588,7 @@ def main() -> int:
     parser.add_argument("--auto", action="store_true", help="Skip review windows and save automatic coadd-review PDFs")
     parser.add_argument(
         "--all", action="store_true",
-        help="Review every reviewable group. Add --auto to accept and coadd all groups without prompts.",
+        help="Review every pending group. Add --auto to refresh and coadd all eligible groups without prompts.",
     )
     args = parser.parse_args()
     if args.all and args.target:
@@ -640,7 +640,7 @@ def main() -> int:
     if not args.all and args.target is None:
         parser.error("Specify --target, or use --list-groups to discover target names")
     if args.all:
-        groups = reviewable_groups(all_groups, coadd_review)
+        groups = reviewable_groups(all_groups, coadd_review, include_coadded=args.auto)
     else:
         groups = find_observation_groups(
             rows, args.target, args.channel, args.setup, args.exposure
