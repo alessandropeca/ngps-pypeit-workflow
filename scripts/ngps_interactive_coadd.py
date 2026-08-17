@@ -15,7 +15,6 @@ import os
 import re
 import subprocess
 import sys
-from collections import defaultdict
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -175,11 +174,6 @@ def review_key(group: ObservationGroup) -> tuple[str, str, str]:
     return group.target.casefold(), group.channel.lower(), group.setup
 
 
-def configuration_key(group: ObservationGroup) -> tuple[str, str]:
-    """Group U/G/R/I setups that came from the same observing configuration."""
-    return group.target.casefold(), group.setup.rsplit("_", 1)[-1].upper()
-
-
 def review_exposures(group: ObservationGroup) -> str:
     return ",".join(exposure_label(row["filename"]) for row in group.rows)
 
@@ -227,37 +221,16 @@ def update_coadd_review(root: Path, groups: list[ObservationGroup]) -> dict[tupl
                     raise RuntimeError(f"Invalid coadd review file: {path}")
                 existing[(row["target"].casefold(), row["channel"].lower(), row["setup"])] = row
 
-    generated_rows = {
-        review_key(group): group_review_row(root, group)
-        for group in groups
-    }
-    incomplete: dict[tuple[str, str], list[str]] = defaultdict(list)
-    for group in groups:
-        row = generated_rows[review_key(group)]
-        if row["reason"].startswith("missing Fluxed spectrum"):
-            incomplete[configuration_key(group)].append(
-                f"{group.channel.upper()} {group.setup}"
-            )
-    for group in groups:
-        missing_channels = incomplete.get(configuration_key(group), [])
-        if not missing_channels:
-            continue
-        row = generated_rows[review_key(group)]
-        row["status"] = "discard"
-        row["reason"] = (
-            "incomplete four-channel configuration: missing Fluxed spectrum in "
-            + ", ".join(missing_channels)
-        )
-
     updated: list[dict[str, str]] = []
     for group in groups:
         key = review_key(group)
-        generated = generated_rows[key]
+        generated = group_review_row(root, group)
         saved = existing.get(key)
         if (
             saved is not None
             and saved["exposures"] == generated["exposures"]
             and generated["status"] != "discard"
+            and not saved["reason"].startswith("incomplete four-channel configuration:")
         ):
             generated["status"] = saved["status"]
             generated["reason"] = saved["reason"]
