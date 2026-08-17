@@ -459,7 +459,6 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     figure.canvas.draw()
     output = audit_path(root, target, exposure)
     figure.savefig(output)
-    print(f"Saved review PDF: {output}")
     plt.close(figure)
     return state["decision"], selected
 
@@ -469,17 +468,19 @@ def rerun_selected_exposure(
 ) -> int:
     """Rerun and install only the accepted exposure's channel products."""
     manual = offsets is not None
+    exposure = next(iter(frames.values())).exposure
+    mode = "manual" if manual else "automatic"
+    print(f"Re-extracting exposure {exposure} ({mode} mode).")
+    print("Only its spec1d/spec2d products will be replaced; fluxed files are unchanged.")
     for channel, frame in sorted(frames.items()):
         if manual and channel not in offsets:
-            print(f"{channel.upper()}: automatic extraction retained.")
+            print(f"  {channel.upper()}: automatic extraction retained")
             continue
         source = next(iter(sorted(frame.spec2d.parent.parent.glob("*.pypeit"))), None)
         if source is None:
             print(f"WARNING: no PypeIt file for {frame.spec2d}")
             continue
         selections = selections_for_offsets(frame, [offsets[channel]]) if manual else None
-        if selections is not None:
-            print(f"{channel.upper()} PypeIt manual value:\n  {manual_value(selections)}")
         try:
             run_dir, target_pypeit = create_target_copy(
                 source, exposure_from_spec2d(frame.spec2d), selections,
@@ -487,19 +488,29 @@ def rerun_selected_exposure(
         except (OSError, RuntimeError) as error:
             print(f"ERROR: could not create one-exposure setup: {error}")
             return 1
-        mode = "manual" if manual else "automatic"
-        print(f"{channel.upper()} one-exposure {mode} setup: {run_dir}")
         runner = Path(sys.executable).with_name("run_pypeit")
         command = [str(runner) if runner.is_file() else "run_pypeit", target_pypeit.name]
-        status = subprocess.run(command, cwd=run_dir).returncode
+        log = source.parents[2] / "logs" / (
+            f"rerun_{channel}_{source.parent.name}_{frame.exposure}.log"
+        )
+        log.parent.mkdir(parents=True, exist_ok=True)
+        print(f"  {channel.upper()}: running ...", end=" ", flush=True)
+        with log.open("w") as stream:
+            status = subprocess.run(
+                command, cwd=run_dir, stdout=stream, stderr=subprocess.STDOUT,
+            ).returncode
         if status != 0:
+            print(f"FAILED (details: {log})")
+            tail = log.read_text(errors="replace").splitlines()[-12:]
+            for line in tail:
+                print(f"    {line}")
             return status
         try:
             count = replace_target_products(run_dir, source.parent, frame.exposure)
         except (OSError, RuntimeError) as error:
             print(f"ERROR: reduction succeeded but products were not installed: {error}")
             return 1
-        print(f"{channel.upper()}: replaced {count} derived product(s) for exposure {frame.exposure}.")
+        print(f"done; replaced {count} derived product(s)")
     return 0
 
 
@@ -529,13 +540,18 @@ def main() -> int:
     groups = group_frames(frames)
     if not groups:
         parser.error("No reduced science spec2d files matched")
-    for group_key in sorted(groups):
+    ordered_groups = sorted(groups)
+    for index, group_key in enumerate(ordered_groups, start=1):
         _, exposure = group_key
         group = groups[group_key]
         target = next(iter(group.values())).target
-        print(f"\n{'=' * 76}\n{target} | exposure {exposure} | channels: {', '.join(channel.upper() for channel in sorted(group))}\n{'=' * 76}")
+        channels = ", ".join(channel.upper() for channel in sorted(group))
+        if not args.auto:
+            print(f"\nReview: {target} | exposure {exposure} | channels {channels}")
         decision, offsets = review_group(root, target, exposure, group, not args.auto)
+        pdf = audit_path(root, target, exposure)
         if decision == "manual":
+            print(f"Saved review PDF: {pdf}")
             # The dashboard PDF above has already replaced the automatic PDF.
             # Manual detector products are rebuilt for this exposure only.
             status = rerun_selected_exposure(group, offsets)
@@ -543,13 +559,17 @@ def main() -> int:
                 return status
         elif decision == "automatic":
             if args.auto:
-                print("Automatic extraction retained; only the review PDF was written.")
+                print(
+                    f"  [{index}/{len(ordered_groups)}] {target} {exposure}: "
+                    "review PDF saved; automatic extraction retained"
+                )
             else:
+                print(f"Saved review PDF: {pdf}")
                 status = rerun_selected_exposure(group)
                 if status != 0:
                     return status
         else:
-            print("Review cancelled; existing PDFs and PypeIt products were not changed.")
+            print("Review cancelled; no files were changed.")
     return 0
 
 

@@ -13,17 +13,23 @@ from pathlib import Path
 CHANNELS = ("r", "g", "i", "u")
 
 
-def run(cmd: list[str], cwd: Path | None = None) -> bool:
-    """Run a command and return True on success."""
-    print("\n>>>", " ".join(cmd), flush=True)
+def run(cmd: list[str], label: str, log: Path, cwd: Path | None = None) -> bool:
+    """Run a PypeIt command quietly, retaining its complete log."""
+    log.parent.mkdir(parents=True, exist_ok=True)
+    print(f"  {label} ...", end=" ", flush=True)
+    with log.open("w") as stream:
+        result = subprocess.run(cmd, cwd=cwd, stdout=stream, stderr=subprocess.STDOUT)
+    if result.returncode == 0:
+        print("done")
+        return True
 
-    result = subprocess.run(cmd, cwd=cwd)
-
-    if result.returncode != 0:
-        print(f"ERROR: command failed with code {result.returncode}")
-        return False
-
-    return True
+    print(f"FAILED (details: {log})")
+    tail = log.read_text(errors="replace").splitlines()[-12:]
+    if tail:
+        print("  Last messages from PypeIt:")
+        for line in tail:
+            print(f"    {line}")
+    return False
 
 
 def inspect_pypeit_file(path: Path) -> dict:
@@ -100,7 +106,7 @@ def main() -> int:
     parser.add_argument(
         "--force-setup",
         action="store_true",
-        help="Delete and regenerate manual setup directories.",
+        help="Delete and regenerate the PypeIt setup directories.",
     )
 
     parser.add_argument(
@@ -135,8 +141,19 @@ def main() -> int:
         print(f"ERROR: raw directory does not exist:\n{raw_dir}")
         return 1
 
-    print(f"\nNGPS night: {args.date}")
-    print(f"Raw data:   {raw_dir}")
+    logs_dir = work_root / "logs"
+    if args.no_review:
+        mode = "reduction only (no review PDFs)"
+    elif args.auto:
+        mode = "automatic review PDFs"
+    else:
+        mode = "interactive extraction review"
+    print(f"\nNGPS reduction — night {args.date}")
+    print(f"Raw data: {raw_dir}")
+    print(f"Mode: {mode}")
+    if args.auto and not args.no_review:
+        print("Existing extracted spectra will be kept; only review PDFs are refreshed.")
+    print("\n1/3 Checking configurations")
 
     jobs: list[tuple[str, Path, dict]] = []
 
@@ -151,7 +168,7 @@ def main() -> int:
         if args.force_setup and setup_root.exists():
             import shutil
 
-            print(f"\nRemoving old setup directory: {setup_root}")
+            print(f"  {channel.upper()}: rebuilding configurations")
             shutil.rmtree(setup_root)
 
         if not setup_root.exists():
@@ -167,11 +184,13 @@ def main() -> int:
                     str(setup_root),
                     "-c",
                     "all",
-                ]
+                ],
+                label=f"{channel.upper()}: creating configurations",
+                log=logs_dir / f"pypeit_setup_{channel}.log",
             )
 
             if not ok:
-                print(f"Skipping channel {channel}: setup failed.")
+                print(f"  {channel.upper()}: skipped because setup creation failed.")
                 continue
 
         # -----------------------------------------------------
@@ -183,28 +202,13 @@ def main() -> int:
             if "_manual_" not in path.parent.name and "_auto_" not in path.parent.name
         ]
 
-        print(
-            f"\n{'=' * 70}\n"
-            f"CHANNEL {channel.upper()}: "
-            f"{len(pypeit_files)} configuration(s)\n"
-            f"{'=' * 70}"
-        )
+        valid_for_channel = 0
 
         for pf in pypeit_files:
 
             info = inspect_pypeit_file(pf)
 
             setup_name = pf.parent.name
-
-            print(
-                f"\n{setup_name}"
-                f"\n  binning:  {info['binning']}"
-                f"\n  science:  {info['has_science']}"
-                f"\n  arc:      {info['has_arc']}"
-                f"\n  flat:     {info['has_flat']}"
-                f"\n  bias:     {info['has_bias']}"
-                f"\n  standard: {info['has_standard']}"
-            )
 
             # Require science + arc + flat.
             #
@@ -215,31 +219,26 @@ def main() -> int:
                 and info["has_arc"]
                 and info["has_flat"]
             ):
-                print("  --> VALID: will reduce")
                 jobs.append((channel, pf, info))
+                valid_for_channel += 1
 
             else:
-                print("  --> SKIP: incomplete science/calibration setup")
+                print(f"  {channel.upper()} {setup_name}: skipped (missing arc or flat calibration)")
+
+        print(
+            f"  {channel.upper()}: {valid_for_channel} valid configuration(s) "
+            f"of {len(pypeit_files)} found"
+        )
 
     # ---------------------------------------------------------
     # Summary before running expensive reductions
     # ---------------------------------------------------------
 
-    print("\n")
-    print("=" * 70)
-    print("CONFIGURATIONS SELECTED FOR REDUCTION")
-    print("=" * 70)
-
-    for channel, pf, info in jobs:
-        print(
-            f"{channel.upper():2s}  "
-            f"{pf.parent.name:20s}  "
-            f"binning={info['binning']}"
-        )
-
     if not jobs:
-        print("\nNo valid configurations found.")
+        print("\nNo valid configurations found; nothing was reduced.")
         return 1
+
+    print(f"\n2/3 Reducing {len(jobs)} valid configuration(s)")
 
     # ---------------------------------------------------------
     # STEP 3: Run PypeIt sequentially
@@ -247,15 +246,7 @@ def main() -> int:
 
     for number, (channel, pf, info) in enumerate(jobs, start=1):
 
-        print("\n")
-        print("#" * 70)
-        print(
-            f"REDUCTION {number}/{len(jobs)}"
-            f"  channel={channel.upper()}"
-            f"  setup={pf.parent.name}"
-            f"  binning={info['binning']}"
-        )
-        print("#" * 70)
+        progress = f"[{number}/{len(jobs)}] {channel.upper()} {pf.parent.name}"
 
         science_dir = pf.parent / "Science"
 
@@ -267,10 +258,7 @@ def main() -> int:
 
         if existing and not args.overwrite:
 
-            print(
-                f"Found {len(existing)} existing spec1d files."
-                " Skipping this setup."
-            )
+            print(f"  {progress}: kept {len(existing)} existing spec1d file(s)")
             continue
 
         cmd = ["run_pypeit", pf.name]
@@ -278,22 +266,21 @@ def main() -> int:
         if args.overwrite:
             cmd.append("--overwrite")
 
-        ok = run(cmd, cwd=pf.parent)
+        ok = run(
+            cmd,
+            label=progress,
+            log=logs_dir / f"run_pypeit_{channel}_{pf.parent.name}.log",
+            cwd=pf.parent,
+        )
 
         if not ok:
-            print(
-                f"\nWARNING: reduction failed for "
-                f"{pf.parent.name}."
-            )
+            print(f"  WARNING: {progress} was not reduced.")
 
     # ---------------------------------------------------------
     # Final summary
     # ---------------------------------------------------------
 
-    print("\n")
-    print("=" * 70)
-    print("REDUCTION SUMMARY")
-    print("=" * 70)
+    print("\nReduction summary")
 
     total_spec1d = 0
 
@@ -309,28 +296,32 @@ def main() -> int:
 
         total_spec1d += len(spec1d)
 
-        print(
-            f"{channel.upper():2s}  "
-            f"{pf.parent.name:20s}  "
-            f"binning={info['binning']:8s}  "
-            f"spec1d={len(spec1d)}"
-        )
+        print(f"  {channel.upper()} {pf.parent.name}: {len(spec1d)} spec1d file(s)")
 
-    print(f"\nTotal spec1d files: {total_spec1d}")
+    print(f"Total: {total_spec1d} spec1d file(s)")
 
     if not args.no_review:
         reviewer = Path(__file__).with_name("ngps_manual_target_extractions.py")
         review_cmd = [sys.executable, str(reviewer), args.date, "--all"]
         if args.auto:
             review_cmd.append("--auto")
-        print("\n" + "=" * 70)
+        print("\n3/3 " + ("Saving automatic extraction-review PDFs" if args.auto else "Opening extraction-review dashboards"))
         if args.auto:
-            print("SAVING AUTOMATIC EXTRACTION-REVIEW PDFS")
+            print(f"Review PDFs: {work_root / 'ExtractionQA'}")
         else:
-            print("OPENING EXTRACTION-REVIEW DASHBOARDS")
-        print("=" * 70)
-        if not run(review_cmd):
+            print("Choose Accept automatic, Manual extraction, or Cancel for each exposure.")
+        review_status = subprocess.run(review_cmd).returncode
+        if review_status != 0:
+            print(f"ERROR: extraction review stopped with code {review_status}.")
             return 1
+
+    if args.no_review:
+        print("\nFinished. No review PDFs were created (--no-review).")
+    elif args.auto:
+        print("\nFinished. Inspect the PDFs above before moving to step 4 (flux calibration).")
+    elif not args.no_review:
+        print("\nFinished. Flux-calibrate after you have accepted the extractions you want to keep.")
+    print(f"Detailed PypeIt logs: {logs_dir}")
 
     return 0
 
