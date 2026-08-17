@@ -299,6 +299,11 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_plot_final_spectra.py "$DATE" --all --noUGedges
    ```
 
+   Example final plot for MGC+04-48-002. It uses U from 3100–4350 Å, G from
+   4280 Å onward, and the full displayed R and I ranges.
+
+   ![Final U/G/R/I coadd example](docs/images/final-spectrum-example.png)
+
    For custom display windows, use `--manual` and provide one or more channel
    ranges in Å. This also changes only the plots.
 
