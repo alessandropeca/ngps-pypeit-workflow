@@ -187,7 +187,7 @@ def save_plot(
     figure, axes = plt.subplots(len(CHANNELS), 1, figsize=(10.0, 7.0))
     figure.subplots_adjust(left=0.12, right=0.98, bottom=0.10, top=0.90, hspace=0.24)
     for axis, channel in zip(axes, CHANNELS):
-        label = f"{channel.upper()} {'telluric-corrected' if path_is_telluric(paths.get(channel)) else 'coadd'}"
+        label = f"{channel.upper()} coadd"
         label_colour = COLOURS[channel]
         axis.text(
             0.015, 0.88, label, transform=axis.transAxes, ha="left", va="top",
@@ -233,10 +233,6 @@ def save_plot(
     plt.close(figure)
 
     return pdf, png
-
-
-def path_is_telluric(path: Path | None) -> bool:
-    return path is not None and path.name.endswith("_tellcorr.fits")
 
 
 def print_saved_plot(target: str, configuration: str, paths: dict[str, Path], pdf: Path, png: Path) -> None:
