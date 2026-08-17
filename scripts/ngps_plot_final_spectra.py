@@ -110,16 +110,21 @@ def save_plot(
     spectra = {channel: read_spectrum(path) for channel, path in paths.items()}
 
     figure, axes = plt.subplots(len(CHANNELS), 1, figsize=(10.0, 7.0))
+    figure.subplots_adjust(left=0.12, right=0.98, bottom=0.10, top=0.90, hspace=0.24)
     for axis, channel in zip(axes, CHANNELS):
-        axis.set_ylabel(r"Flux ($10^{-17}$ erg s$^{-1}$ cm$^{-2}$ Å$^{-1}$)")
-        axis.set_xlabel("Wavelength (Å)")
+        label = f"{channel.upper()} coadd"
+        label_colour = COLOURS[channel]
+        axis.text(
+            0.015, 0.88, label, transform=axis.transAxes, ha="left", va="top",
+            color=label_colour, fontsize=10, fontweight="bold",
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.78, "pad": 1.8},
+        )
         if channel not in spectra:
             axis.set_facecolor("white")
             axis.set_xlim(0, 1)
             axis.set_ylim(0, 1)
             axis.set_xticks([])
             axis.set_yticks([])
-            axis.set_title(f"{channel.upper()} coadd unavailable", loc="left", color="0.45")
             axis.text(
                 0.5, 0.5, "No flux-calibrated coadd", transform=axis.transAxes,
                 ha="center", va="center", color="0.45",
@@ -130,12 +135,17 @@ def save_plot(
         axis.axhline(0, color="0.65", lw=0.7)
         axis.set_xlim(np.min(wave), np.max(wave))
         axis.set_ylim(*display_limits([flux], robust_y))
-        axis.set_title(f"{channel.upper()} coadd", loc="left", color=COLOURS[channel])
+        if channel != "i":
+            axis.set_xticklabels([])
+    axes[-1].set_xlabel("Wavelength (Å)")
+    figure.text(
+        0.025, 0.5, r"Flux ($10^{-17}$ erg s$^{-1}$ cm$^{-2}$ Å$^{-1}$)",
+        ha="center", va="center", rotation="vertical",
+    )
     figure.suptitle(
         f"{target} | final available U/G/R/I coadds | configuration {configuration}",
         fontsize=14,
     )
-    figure.tight_layout(rect=(0, 0, 1, 0.97))
 
     output_dir = root / "FinalQA" / safe_name(target)
     output_dir.mkdir(parents=True, exist_ok=True)
