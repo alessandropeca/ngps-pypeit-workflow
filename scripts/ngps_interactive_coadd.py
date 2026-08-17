@@ -574,7 +574,10 @@ def main() -> int:
     )
     parser.add_argument("--list-groups", action="store_true", help="List target/channel/setup groups and exit")
     parser.add_argument("--summary", action="store_true", help="Print candidates without opening the review window")
-    parser.add_argument("--audit", action="store_true", help="List final coadd FITS files and incomplete groups")
+    parser.add_argument(
+        "--audit", action="store_true",
+        help="List final coadd FITS files and incomplete groups for all or selected targets",
+    )
     parser.add_argument("--auto", action="store_true", help="Skip review windows and save automatic coadd-review PDFs")
     parser.add_argument(
         "--all", action="store_true",
@@ -583,8 +586,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.all and args.target:
         parser.error("--all processes every reviewable group. Do not combine it with --target")
-    if args.audit and (args.all or args.target or args.channel or args.setup or args.exposure):
-        parser.error("--audit cannot be combined with group-selection options")
+    if args.audit and (args.auto or args.list_groups or args.summary):
+        parser.error("--audit cannot be combined with --auto, --list-groups, or --summary")
 
     root = Path(os.environ.get("NGPS_WORK_ROOT", Path.home() / "ngps_data" / "work")) / args.date
     inventory = root / "science_standard_inventory.csv"
@@ -598,8 +601,21 @@ def main() -> int:
     except RuntimeError as error:
         parser.error(str(error))
     if args.audit:
-        report = audit_coadds(root, all_groups, coadd_review)
-        report_path = write_coadd_report(root, "coadd_audit.csv", report)
+        if args.all:
+            audit_groups = all_groups
+            report_name = "coadd_audit.csv"
+        else:
+            audit_groups = find_observation_groups(
+                rows, args.target, args.channel, args.setup, args.exposure
+            )
+            if not audit_groups:
+                parser.error("No matching science observations found for this audit")
+            report_name = (
+                "coadd_audit.csv" if args.target is None
+                else f"coadd_audit_{safe_name(args.target)}.csv"
+            )
+        report = audit_coadds(root, audit_groups, coadd_review)
+        report_path = write_coadd_report(root, report_name, report)
         print_coadd_report(report, report_path, "NGPS COADD AUDIT")
         return 0
     if args.list_groups:

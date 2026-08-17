@@ -189,16 +189,22 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_interactive_coadd.py "$DATE" --all --auto
    ```
 
-   At the end, the terminal lists every completed final FITS file with its full
-   location, plus any failed or skipped coadds. The same record is saved as
-   `$NIGHT/coadd_run_summary.csv`. To inspect the current state later, run:
+   At the end, a final coadd report lists every completed FITS file with its
+   full location, plus any failed or skipped coadds. The same record is saved
+   as `$NIGHT/coadd_run_summary.csv`. Audit the complete night later with:
 
    ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --audit
+   python scripts/ngps_interactive_coadd.py "$DATE" --audit --all
    ```
 
    This writes `$NIGHT/coadd_audit.csv` and lists completed final spectra,
-   missing outputs, and discarded groups.
+   missing outputs, and discarded groups. Audit one target only with:
+
+   ```bash
+   python scripts/ngps_interactive_coadd.py "$DATE" --audit --target 'MGC+04-48-002'
+   ```
+
+   This writes `$NIGHT/coadd_audit_MGC_04-48-002.csv`.
 
    To open the review window for every reviewable group, one after another:
 
