@@ -27,6 +27,7 @@ from matplotlib.widgets import Button, CheckButtons
 COADD_REVIEW_FIELDS = (
     "target", "channel", "setup", "exposures", "status", "reason", "notes",
 )
+COADD_REPORT_FIELDS = ("target", "channel", "setup", "status", "final_spectrum", "detail")
 
 
 @dataclass
@@ -355,6 +356,80 @@ def coadd_qa_path(root: Path, target: str, channel: str, setup: str) -> Path:
     return root / "CoaddQA" / safe_name(target) / stem
 
 
+def coadd_paths(root: Path, group: ObservationGroup) -> tuple[Path, Path]:
+    """Return the output directory and final FITS path for one coadd group."""
+    stem = f"{safe_name(group.target)}_{group.channel}_{safe_name(group.setup)}"
+    output_directory = root / "Coadds" / stem
+    return output_directory, output_directory / f"{stem}_coadd.fits"
+
+
+def report_row(group: ObservationGroup, status: str, output: Path, detail: str) -> dict[str, str]:
+    """Format one persistent coadd-status row."""
+    return {
+        "target": group.target,
+        "channel": group.channel.upper(),
+        "setup": group.setup,
+        "status": status,
+        "final_spectrum": str(output),
+        "detail": detail,
+    }
+
+
+def write_coadd_report(root: Path, filename: str, rows: list[dict[str, str]]) -> Path:
+    """Write a compact, user-readable record of coadd results."""
+    path = root / filename
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=COADD_REPORT_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
+
+
+def print_coadd_report(rows: list[dict[str, str]], path: Path, heading: str) -> None:
+    """Print final spectra and all incomplete outcomes in a concise form."""
+    print(f"\n{'=' * 80}\n{heading}\n{'=' * 80}")
+    labels = (
+        ("completed", "FINAL SPECTRA COMPLETED"),
+        ("failed", "FAILED COADDS"),
+        ("pending", "COADDS NOT COMPLETED"),
+        ("skipped", "COADDS SKIPPED"),
+        ("discarded", "DISCARDED GROUPS"),
+    )
+    for status, title in labels:
+        matching = [row for row in rows if row["status"] == status]
+        if not matching:
+            continue
+        print(f"\n{title}")
+        for row in matching:
+            print(
+                f"{row['target']} | {row['channel']} | {row['setup']}\n"
+                f"  {row['final_spectrum']}\n"
+                f"  {row['detail']}"
+            )
+    print(f"\nSaved coadd report: {path}")
+
+
+def audit_coadds(
+    root: Path, groups: list[ObservationGroup],
+    review: dict[tuple[str, str, str], dict[str, str]],
+) -> list[dict[str, str]]:
+    """Report the actual final-FITS state of all groups in the nightly inventory."""
+    rows = []
+    for group in groups:
+        _, output = coadd_paths(root, group)
+        review_row = review[review_key(group)]
+        status = review_row["status"].casefold()
+        if status == "discard":
+            rows.append(report_row(group, "discarded", output, review_row["reason"] or "discarded"))
+        elif output.is_file():
+            rows.append(report_row(group, "completed", output, "final coadded FITS exists"))
+        elif status == "coadded":
+            rows.append(report_row(group, "failed", output, "recorded as coadded but final FITS is missing"))
+        else:
+            rows.append(report_row(group, "pending", output, "no final coadded FITS"))
+    return rows
+
+
 def review(
     candidates: list[Candidate], target: str, channel: str, setup: str,
     output: Path, interactive: bool,
@@ -512,6 +587,7 @@ def main() -> int:
     )
     parser.add_argument("--list-groups", action="store_true", help="List target/channel/setup groups and exit")
     parser.add_argument("--summary", action="store_true", help="Print candidates without opening the review window")
+    parser.add_argument("--audit", action="store_true", help="List final coadd FITS files and incomplete groups")
     parser.add_argument("--auto", action="store_true", help="Skip review windows and save automatic coadd-review PDFs")
     parser.add_argument(
         "--all", action="store_true",
@@ -520,6 +596,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.all and args.target:
         parser.error("--all processes every reviewable group. Do not combine it with --target")
+    if args.audit and (args.all or args.target or args.channel or args.setup or args.exposure):
+        parser.error("--audit cannot be combined with group-selection options")
 
     root = Path(os.environ.get("NGPS_WORK_ROOT", Path.home() / "ngps_data" / "work")) / args.date
     inventory = root / "science_standard_inventory.csv"
@@ -532,6 +610,11 @@ def main() -> int:
         coadd_review = update_coadd_review(root, all_groups)
     except RuntimeError as error:
         parser.error(str(error))
+    if args.audit:
+        report = audit_coadds(root, all_groups, coadd_review)
+        report_path = write_coadd_report(root, "coadd_audit.csv", report)
+        print_coadd_report(report, report_path, "NGPS COADD AUDIT")
+        return 0
     if args.list_groups:
         groups = find_observation_groups(rows, channel=args.channel, setup=args.setup)
         groups = reviewable_groups(groups, coadd_review)
@@ -571,6 +654,8 @@ def main() -> int:
     selected_groups = groups if args.all else choose_groups(groups)
     batch_auto = args.all and args.auto
     completed = 0
+    run_report: list[dict[str, str]] = []
+    failures = 0
     for group in selected_groups:
         candidates, central_slit, standard_spat = candidates_for_group(root, rows, group)
         print(
@@ -579,6 +664,9 @@ def main() -> int:
             f"(standard spatial pixel {standard_spat})"
         )
         if not candidates:
+            if batch_auto:
+                _, output = coadd_paths(root, group)
+                run_report.append(report_row(group, "skipped", output, "no usable fluxed spectra"))
             continue
         accepted = review(
             candidates, group.target, group.channel, group.setup,
@@ -587,18 +675,22 @@ def main() -> int:
         )
         if not accepted:
             print("Coadd not accepted. No selection, coadd input, or coadd product was written.")
+            if batch_auto:
+                _, output = coadd_paths(root, group)
+                run_report.append(report_row(group, "skipped", output, "automatic selection was not accepted"))
             continue
         exposure_count = len({item.raw_filename for item in accepted})
         if exposure_count < 2:
             print("At least two exposures are required for a coadd. No files were written.")
+            if batch_auto:
+                _, output = coadd_paths(root, group)
+                run_report.append(report_row(group, "skipped", output, "fewer than two selected exposures"))
             continue
         print(
             f"Accepted {exposure_count} of {len(group.rows)} repeat exposure(s), "
             f"containing {len(accepted)} slicer trace(s)."
         )
-        out_dir = root / "Coadds" / (
-            f"{safe_name(group.target)}_{group.channel}_{safe_name(group.setup)}"
-        )
+        out_dir, expected_output = coadd_paths(root, group)
         if out_dir.exists():
             write_question = "Replace this group's existing coadd selection and PypeIt input file?"
         else:
@@ -608,23 +700,48 @@ def main() -> int:
             continue
         if batch_auto and out_dir.exists():
             print(f"Coadd output already exists. Keeping it unchanged: {out_dir}")
+            run_report.append(report_row(group, "skipped", expected_output, "existing coadd directory kept unchanged"))
             continue
         coadd_file, output = write_coadd_input(
             out_dir, group.target, group.channel, group.setup, central_slit, accepted
         )
         print(f"Coadd input: {coadd_file}\nExpected output: {output}")
         if batch_auto or ask_yes_no("Run PypeIt coaddition now?"):
-            status = run_coadd(coadd_file, out_dir)
+            try:
+                status = run_coadd(coadd_file, out_dir)
+            except OSError as error:
+                status = 1
+                failure_detail = str(error)
+            else:
+                failure_detail = f"PypeIt returned status {status}"
             if status != 0:
+                if batch_auto:
+                    run_report.append(report_row(group, "failed", output, failure_detail))
+                    failures += 1
+                    continue
                 return status
+            if not output.is_file():
+                message = "PypeIt returned success but no final coadded FITS was written"
+                if batch_auto:
+                    run_report.append(report_row(group, "failed", output, message))
+                    failures += 1
+                    continue
+                print(message)
+                return 1
             review_row = coadd_review[review_key(group)]
             review_row["status"] = "coadded"
             review_row["reason"] = "PypeIt coadd completed"
             write_coadd_review(review_path(root), list(coadd_review.values()))
             completed += 1
+            if batch_auto:
+                run_report.append(report_row(group, "completed", output, "PypeIt coadd completed"))
     if args.all:
         label = "Automatic coadds" if batch_auto else "Coadds"
         print(f"\n{label} completed: {completed}")
+    if batch_auto:
+        report_path = write_coadd_report(root, "coadd_run_summary.csv", run_report)
+        print_coadd_report(run_report, report_path, "NGPS AUTOMATIC COADD RESULTS")
+        return 1 if failures else 0
     return 0
 
 
