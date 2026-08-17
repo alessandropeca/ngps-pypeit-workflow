@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -22,6 +23,15 @@ def safe_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_")
 
 
+def source_sha256(path: Path) -> str:
+    """Return a stable checksum used to reject stale telluric products."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def completed_coadds(root: Path, target: str) -> dict[str, dict[str, Path]]:
     """Find completed coadds keyed by setup letter and channel."""
     coadds = root / "Coadds"
@@ -36,6 +46,42 @@ def completed_coadds(root: Path, target: str) -> dict[str, dict[str, Path]]:
             filename = directory / f"{directory.name}_coadd.fits"
             if filename.is_file():
                 found.setdefault(configuration, {})[channel] = filename
+    return found
+
+
+def completed_tellurics(root: Path, target: str) -> dict[str, dict[str, Path]]:
+    """Find validated telluric products whose source coadds have not changed."""
+    review = root / "telluric_review.csv"
+    if not review.is_file():
+        return {}
+    found: dict[str, dict[str, Path]] = {}
+    with review.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    for row in rows:
+        if row.get("target", "").casefold() != target.casefold():
+            continue
+        if row.get("status", "").casefold() != "completed":
+            continue
+        channel = row.get("channel", "").casefold()
+        source = Path(row.get("source_coadd", ""))
+        corrected = Path(row.get("corrected_spectrum", ""))
+        if channel not in CHANNELS or not source.is_file() or not corrected.is_file():
+            continue
+        if not row.get("source_sha256") or source_sha256(source) != row["source_sha256"]:
+            continue
+        setup = row.get("setup", "")
+        if not setup:
+            continue
+        found.setdefault(setup.rsplit("_", 1)[-1].upper(), {})[channel] = corrected
+    return found
+
+
+def final_products(root: Path, target: str) -> dict[str, dict[str, Path]]:
+    """Use validated telluric products for R/I while retaining the source coadds elsewhere."""
+    found = {configuration: dict(paths) for configuration, paths in completed_coadds(root, target).items()}
+    for configuration, corrected in completed_tellurics(root, target).items():
+        if configuration in found:
+            found[configuration].update(corrected)
     return found
 
 
@@ -141,7 +187,7 @@ def save_plot(
     figure, axes = plt.subplots(len(CHANNELS), 1, figsize=(10.0, 7.0))
     figure.subplots_adjust(left=0.12, right=0.98, bottom=0.10, top=0.90, hspace=0.24)
     for axis, channel in zip(axes, CHANNELS):
-        label = f"{channel.upper()} coadd"
+        label = f"{channel.upper()} {'telluric-corrected' if path_is_telluric(paths.get(channel)) else 'coadd'}"
         label_colour = COLOURS[channel]
         axis.text(
             0.015, 0.88, label, transform=axis.transAxes, ha="left", va="top",
@@ -170,7 +216,7 @@ def save_plot(
         ha="center", va="center", rotation="vertical",
     )
     figure.suptitle(
-        f"{target} | final available U/G/R/I coadds | configuration {configuration}",
+        f"{target} | final available U/G/R/I spectra | configuration {configuration}",
         fontsize=14,
     )
 
@@ -187,6 +233,10 @@ def save_plot(
     plt.close(figure)
 
     return pdf, png
+
+
+def path_is_telluric(path: Path | None) -> bool:
+    return path is not None and path.name.endswith("_tellcorr.fits")
 
 
 def print_saved_plot(target: str, configuration: str, paths: dict[str, Path], pdf: Path, png: Path) -> None:
@@ -244,7 +294,7 @@ def main() -> int:
     if args.target:
         try:
             configuration, paths = choose_configuration(
-                completed_coadds(root, args.target), args.configuration
+                final_products(root, args.target), args.configuration
             )
             pdf, png = save_plot(
                 root, args.target, configuration, paths, show=True,
@@ -262,7 +312,7 @@ def main() -> int:
     completed = 0
     failed = 0
     for target in targets:
-        for configuration, paths in sorted(completed_coadds(root, target).items()):
+        for configuration, paths in sorted(final_products(root, target).items()):
             try:
                 pdf, png = save_plot(
                     root, target, configuration, paths, show=False,

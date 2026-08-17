@@ -40,6 +40,51 @@ def test_interactive_coadd_tool_is_present():
     assert (ROOT / "scripts" / "ngps_interactive_coadd.py").is_file()
 
 
+def test_telluric_plan_uses_only_completed_fluxed_ri_coadds():
+    source = ROOT / "scripts" / "ngps_telluric_correct.py"
+    spec = importlib.util.spec_from_file_location("ngps_telluric_correct", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    class FakeSpectrum:
+        header = {"FLUXED": True}
+
+    class FakeHdul:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def __getitem__(self, _name):
+            return FakeSpectrum()
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        rows = []
+        for channel in ("u", "r", "i"):
+            setup = f"p200_ngps_{channel}_B"
+            rows.append({
+                "target": "target_a", "channel": channel.upper(), "setup": setup,
+                "status": "coadded",
+            })
+            path = module.coadd_path(root, "target_a", channel, setup)
+            path.parent.mkdir(parents=True)
+            path.touch()
+        with (root / "coadd_review.csv").open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=("target", "channel", "setup", "status"))
+            writer.writeheader()
+            writer.writerows(rows)
+
+        with patch.object(module.fits, "open", return_value=FakeHdul()):
+            products, skipped = module.selected_products(root, None, ("r", "i"), None)
+
+    assert skipped == []
+    assert [product.channel for product in products] == ["i", "r"]
+
+
 def test_flux_plan_groups_consecutive_exposures_and_allows_a_manual_standard():
     with tempfile.TemporaryDirectory() as temporary:
         work_root = Path(temporary)

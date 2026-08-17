@@ -263,7 +263,38 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --channel r --setup p200_ngps_r_B --exposure 0121 --exposure 0123
    ```
 
-6. Save the final U/G/R/I plots for every target and configuration with at
+6. Telluric-correct completed R and I coadds. This leaves the source coadds
+   unchanged and creates separate corrected spectra, fitted atmospheric models,
+   and QA PDFs. The first command prints the plan only.
+
+   ```bash
+   python scripts/ngps_telluric_correct.py "$DATE" --all
+   ```
+
+   Install PypeIt's compact atmospheric PCA model once before the first run.
+
+   ```bash
+   pypeit_install_telluric TellPCA_3000_26000_R10000.fits
+   ```
+
+   Run the planned corrections.
+
+   ```bash
+   python scripts/ngps_telluric_correct.py "$DATE" --all --run
+   ```
+
+   Products are in `$NIGHT/Telluric/<target>/` and QA PDFs are in
+   `$NIGHT/TelluricQA/<target>/`. Review `$NIGHT/telluric_review.csv`. A failed
+   result is not used for final plotting. Re-running after a coadd replaces only
+   the separate telluric products.
+
+   To run one target only:
+
+   ```bash
+   python scripts/ngps_telluric_correct.py "$DATE" --target 'MGC+04-48-002' --run
+   ```
+
+7. Save the final U/G/R/I plots for every target and configuration with at
    least one completed channel coadd.
    This does not open graphic windows. The terminal lists every saved plot and
    reports any channel coadd that cannot be plotted.
@@ -280,8 +311,9 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
    Close the window when you are finished zooming or panning. The figure has one
    flux-versus-wavelength panel per channel. It does not merge U/G/R/I or alter
-   the FITS spectra. Each y-axis includes every valid flux sample. It saves a PDF
-   and PNG in `$NIGHT/FinalQA/MGC_04-48-002/`, for example
+   the FITS spectra. It uses validated telluric-corrected R/I products when they
+   exist, otherwise it uses the flux-calibrated coadd. Each y-axis includes every
+   valid flux sample. It saves a PDF and PNG in `$NIGHT/FinalQA/MGC_04-48-002/`, for example
    `~/ngps_data/work/20260623/FinalQA/MGC_04-48-002/MGC_04-48-002_UGRI_B_coadds.pdf`.
    A channel without a completed flux-calibrated coadd is shown as an empty white
    panel. If a target has more than one configuration, choose one explicitly:
@@ -300,7 +332,7 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    ```
 
    Example final plot for MGC+04-48-002. It uses U from 3100–4350 Å, G from
-   4280 Å onward, and the full displayed R and I ranges.
+   4280 Å onward, and telluric-corrected R and I coadds.
 
    ![Final U/G/R/I coadd example](docs/images/final-spectrum-example.png)
 
@@ -313,7 +345,6 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
 ## Planned extensions
 
-- Telluric correction after the channel coadds
 - U/G/R/I merging
 
 For the fuller guide, including background and troubleshooting, see
