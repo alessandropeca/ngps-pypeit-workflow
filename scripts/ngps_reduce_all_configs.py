@@ -131,6 +131,7 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+    overwrite_products = args.overwrite or args.auto
 
     work_root = Path(os.environ.get(
         "NGPS_WORK_ROOT", Path.home() / "ngps_data" / "work"
@@ -145,14 +146,12 @@ def main() -> int:
     if args.no_review:
         mode = "reduction only (no review PDFs)"
     elif args.auto:
-        mode = "automatic review PDFs"
+        mode = "automatic reduction and review PDFs (existing products overwritten)"
     else:
         mode = "interactive extraction review"
     print(f"\nNGPS reduction — night {args.date}")
     print(f"Raw data: {raw_dir}")
     print(f"Mode: {mode}")
-    if args.auto and not args.no_review:
-        print("Existing extracted spectra will be kept; only review PDFs are refreshed.")
     print("\n1/3 Checking configurations")
 
     jobs: list[tuple[str, Path, dict]] = []
@@ -256,14 +255,14 @@ def main() -> int:
             else []
         )
 
-        if existing and not args.overwrite:
+        if existing and not overwrite_products:
 
             print(f"  {progress}: kept {len(existing)} existing spec1d file(s)")
             continue
 
         cmd = ["run_pypeit", pf.name]
 
-        if args.overwrite:
+        if overwrite_products:
             cmd.append("--overwrite")
 
         ok = run(

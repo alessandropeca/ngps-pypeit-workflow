@@ -64,8 +64,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
 2. Reduce every valid channel/setup and save an automatic extraction-review PDF
    for every science exposure in the entire night. This does not pause for decisions.
-   `--auto` keeps existing extracted spectra and refreshes the review PDFs. It
-   does not overwrite an extraction. If you omit `--auto`, a dashboard opens
+   `--auto` overwrites the existing automatic reduction products and refreshes
+   the review PDFs. If you omit `--auto`, a dashboard opens
    for each exposure so you can review and change the automatic settings.
 
    ```bash
