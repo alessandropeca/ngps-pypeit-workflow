@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Plan and run grouped NGPS flux calibration."""
 
 from __future__ import annotations
 
@@ -7,564 +8,357 @@ import csv
 import os
 import shutil
 import subprocess
+from collections import defaultdict
 from pathlib import Path
 
 
-CHANNELS = ("r", "g", "i", "u")
+ASSOCIATION_FIELDS = (
+    "channel", "setup", "group_id", "target", "science_filenames",
+    "group_mid_mjd", "standard_filename", "standard_target",
+    "standard_mjd", "delta_minutes",
+)
 
 
-def run_command(
-    command: list[str],
-    cwd: Path | None = None,
-) -> bool:
-    """Run an external command and return True on success."""
-
-    print("\n>>>", " ".join(str(x) for x in command), flush=True)
-
-    result = subprocess.run(
-        command,
-        cwd=cwd,
-    )
-
-    if result.returncode != 0:
-        print(
-            f"ERROR: command failed with exit code "
-            f"{result.returncode}"
-        )
-        return False
-
-    return True
+def run_command(command: list[str], cwd: Path) -> bool:
+    """Run one PypeIt command and report whether it succeeded."""
+    print("\n>>> " + " ".join(str(item) for item in command), flush=True)
+    result = subprocess.run(command, cwd=cwd)
+    if result.returncode == 0:
+        return True
+    print(f"ERROR: command failed with exit code {result.returncode}")
+    return False
 
 
-def find_spec1d(
-    science_dir: Path,
-    raw_filename: str,
-) -> Path | None:
-    """
-    Find the spec1d corresponding to a raw NGPS filename.
-
-    Example:
-        ngps_260623_0097.fits
-
-    matches:
-        spec1d_ngps_260623_0097-hz44_....fits
-    """
-
-    stem = Path(raw_filename).stem
-
-    matches = sorted(
-        science_dir.glob(f"spec1d_{stem}-*.fits")
-    )
-
+def find_spec1d(science_dir: Path, raw_filename: str) -> Path | None:
+    """Return the extracted 1D product corresponding to one raw file."""
+    matches = sorted(science_dir.glob(f"spec1d_{Path(raw_filename).stem}-*.fits"))
     if not matches:
         return None
-
     if len(matches) > 1:
-        print(
-            f"WARNING: multiple spec1d files found for "
-            f"{raw_filename}. Using:"
-        )
-        print(matches[0])
-
+        print(f"WARNING: multiple spec1d files for {raw_filename}. Using {matches[0].name}")
     return matches[0]
 
 
 def safe_name(text: str) -> str:
-    """Convert target names to filesystem-friendly strings."""
+    """Convert a target name to a stable filesystem-safe label."""
+    return "".join(char if char.isalnum() or char in "-_" else "_" for char in text.strip()).strip("_")
 
-    cleaned = []
 
-    for char in text.strip():
-        if char.isalnum() or char in ("-", "_"):
-            cleaned.append(char)
+def group_id(target: str, science: list[dict[str, object]]) -> str:
+    """Return a stable identifier for one consecutive science sequence."""
+    first = Path(str(science[0]["filename"])).stem
+    last = Path(str(science[-1]["filename"])).stem
+    return f"{safe_name(target)}__{first}-{last}"
+
+
+def consecutive_groups(science: list[dict[str, object]]) -> list[list[dict[str, object]]]:
+    """Group consecutive science exposures with the same target name."""
+    groups: list[list[dict[str, object]]] = []
+    for row in sorted(science, key=lambda item: float(item["mjd"])):
+        if groups and str(groups[-1][0]["target"]).casefold() == str(row["target"]).casefold():
+            groups[-1].append(row)
         else:
-            cleaned.append("_")
+            groups.append([row])
+    return groups
 
-    return "".join(cleaned).strip("_")
+
+def nearest_standard(standards: list[dict[str, object]], mjd: float) -> dict[str, object]:
+    return min(standards, key=lambda standard: abs(float(standard["mjd"]) - mjd))
 
 
-def main() -> int:
+def association_key(channel: str, setup: str, identifier: str) -> tuple[str, str, str]:
+    return channel.lower(), setup, identifier
 
-    parser = argparse.ArgumentParser(
-        description=(
-            "Generate sensitivity functions and flux-calibrate "
-            "all reduced NGPS science spectra."
-        )
-    )
 
-    parser.add_argument(
-        "date",
-        help="UT observing date in YYYYMMDD format",
-    )
-
-    parser.add_argument(
-        "--run",
-        action="store_true",
-        help=(
-            "Actually run pypeit_sensfunc and "
-            "pypeit_flux_calib. Without this option, "
-            "only print the planned associations."
-        ),
-    )
-
-    parser.add_argument(
-        "--force-sensfunc",
-        action="store_true",
-        help="Regenerate sensitivity functions that already exist.",
-    )
-
-    parser.add_argument(
-        "--overwrite-fluxed",
-        action="store_true",
-        help=(
-            "Replace existing copies in the Fluxed directories."
-        ),
-    )
-
-    args = parser.parse_args()
-
-    root = Path(os.environ.get(
-        "NGPS_WORK_ROOT", Path.home() / "ngps_data" / "work"
-    )) / args.date
-
-    inventory_file = (
-        root
-        / "science_standard_inventory.csv"
-    )
-
-    if not inventory_file.exists():
-        print("ERROR: inventory file does not exist:")
-        print(inventory_file)
-        print()
-        print(
-            "Run ngps_inventory_standards.py first."
-        )
-        return 1
-
-    # ---------------------------------------------------------
-    # Read inventory
-    # ---------------------------------------------------------
-
-    with inventory_file.open() as handle:
-        rows = list(
-            csv.DictReader(handle)
-        )
-
+def read_associations(path: Path) -> dict[tuple[str, str, str], dict[str, str]]:
+    """Read a reviewed association file keyed by channel, setup, and group."""
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows or set(ASSOCIATION_FIELDS) - set(rows[0]):
+        raise RuntimeError(f"{path} is missing required association columns")
+    result: dict[tuple[str, str, str], dict[str, str]] = {}
     for row in rows:
-        row["mjd"] = float(row["mjd"])
+        key = association_key(row["channel"], row["setup"], row["group_id"])
+        if key in result:
+            raise RuntimeError(f"duplicate association group: {row['group_id']}")
+        result[key] = row
+    return result
 
-    total_flux_jobs = 0
-    total_sensfuncs = 0
 
-    # ---------------------------------------------------------
-    # Process each channel/configuration independently
-    # ---------------------------------------------------------
+def write_associations(path: Path, associations: list[dict[str, str]]) -> None:
+    """Write a proposed association table for human review."""
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ASSOCIATION_FIELDS)
+        writer.writeheader()
+        writer.writerows(associations)
 
-    setups = sorted(
-        {
-            (row["channel"].lower(), row["setup"])
-            for row in rows
-            if (
-                "science" in row["frametype"].lower()
-                or "standard" in row["frametype"].lower()
-            )
-        }
-    )
 
-    for channel, setup in setups:
+def collect_plans(root: Path, rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Collect usable science groups and standard-star candidates by setup."""
+    grouped_rows: dict[tuple[str, str], list[dict[str, object]]] = defaultdict(list)
+    for row in rows:
+        frame_type = str(row["frametype"]).lower()
+        if "science" in frame_type or "standard" in frame_type:
+            grouped_rows[(str(row["channel"]).lower(), str(row["setup"]))].append(row)
 
-        setup_rows = [
-            row
-            for row in rows
-            if (
-                row["channel"].lower() == channel
-                and row["setup"] == setup
-            )
-        ]
-
-        standards = [
-            row
-            for row in setup_rows
-            if "standard" in row["frametype"].lower()
-        ]
-
-        science = [
-            row
-            for row in setup_rows
-            if "science" in row["frametype"].lower()
-        ]
-
-        # Skip incomplete setups such as Setup A.
+    plans: list[dict[str, object]] = []
+    for (channel, setup), setup_rows in sorted(grouped_rows.items()):
+        if "_manual_" in setup or "_auto_" in setup:
+            continue
+        standards = [row for row in setup_rows if "standard" in str(row["frametype"]).lower()]
+        science = [row for row in setup_rows if "science" in str(row["frametype"]).lower()]
         if not standards or not science:
-            print()
-            print("=" * 78)
-            print(
-                f"SKIPPING {setup}: "
-                f"science={len(science)}, "
-                f"standards={len(standards)}"
-            )
-            print("=" * 78)
+            print(f"Skipping {channel.upper()} {setup}: science={len(science)}, standards={len(standards)}")
             continue
 
-        setup_dir = (
-            root
-            / f"manual_setup_{channel}"
-            / setup
-        )
-
+        setup_dir = root / f"manual_setup_{channel}" / setup
         science_dir = setup_dir / "Science"
-
         if not science_dir.exists():
-            print(
-                f"WARNING: Science directory missing:"
-            )
-            print(science_dir)
+            print(f"WARNING: science directory missing: {science_dir}")
             continue
 
         sens_dir = setup_dir / "Sensfunc"
-        fluxed_dir = setup_dir / "Fluxed"
-        flux_files_dir = setup_dir / "FluxFiles"
-
-        sens_dir.mkdir(exist_ok=True)
-        fluxed_dir.mkdir(exist_ok=True)
-        flux_files_dir.mkdir(exist_ok=True)
-
-        print()
-        print("#" * 78)
-        print(
-            f"{channel.upper()}  {setup}"
-        )
-        print("#" * 78)
-
-        # -----------------------------------------------------
-        # Locate standard spec1d files
-        # -----------------------------------------------------
-
-        available_standards = []
-
-        for std in standards:
-
-            spec1d = find_spec1d(
-                science_dir,
-                std["filename"],
-            )
-
+        candidates: list[dict[str, object]] = []
+        for standard in standards:
+            spec1d = find_spec1d(science_dir, str(standard["filename"]))
             if spec1d is None:
-                print(
-                    f"WARNING: no spec1d found for standard "
-                    f"{std['filename']} "
-                    f"({std['target']})"
-                )
+                print(f"WARNING: no spec1d for standard {standard['filename']} ({standard['target']})")
                 continue
-
-            std_name = safe_name(std["target"])
-
-            raw_stem = Path(
-                std["filename"]
-            ).stem
-
-            sensfile = (
-                sens_dir
-                / (
-                    f"sens_{channel.upper()}_"
-                    f"{setup}_"
-                    f"{std_name}_"
-                    f"{raw_stem}.fits"
-                )
+            candidate = dict(standard)
+            candidate["spec1d"] = spec1d
+            candidate["sensfile"] = sens_dir / (
+                f"sens_{channel.upper()}_{setup}_{safe_name(str(standard['target']))}_{Path(str(standard['filename'])).stem}.fits"
             )
-
-            std_info = dict(std)
-            std_info["spec1d"] = spec1d
-            std_info["sensfile"] = sensfile
-
-            available_standards.append(
-                std_info
-            )
-
-        if not available_standards:
-            print(
-                "WARNING: no reduced standard-star "
-                "spec1d files found."
-            )
+            candidates.append(candidate)
+        if not candidates:
+            print(f"WARNING: no usable standards for {channel.upper()} {setup}")
             continue
 
-        # -----------------------------------------------------
-        # Build one sensitivity function per standard exposure
-        # -----------------------------------------------------
-
-        for std in available_standards:
-
-            sensfile = std["sensfile"]
-
-            print()
-            print(
-                f"STANDARD: {std['target']}"
-            )
-            print(
-                f"  MJD:      {std['mjd']:.6f}"
-            )
-            print(
-                f"  spec1d:   {std['spec1d']}"
-            )
-            print(
-                f"  sensfunc: {sensfile}"
-            )
-
-            if (
-                sensfile.exists()
-                and not args.force_sensfunc
-            ):
-                print(
-                    "  Sensitivity function already exists."
-                )
-
-            elif args.run:
-
-                # Do not force UVIS/IR here.
-                #
-                # Let the NGPS PypeIt spectrograph defaults
-                # determine the sensitivity-function algorithm.
-                ok = run_command(
-                    [
-                        "pypeit_sensfunc",
-                        str(std["spec1d"]),
-                        "-o",
-                        str(sensfile),
-                    ],
-                    cwd=setup_dir,
-                )
-
-                if not ok:
-                    print(
-                        "  WARNING: sensfunc generation failed."
-                    )
-                    continue
-
-            total_sensfuncs += 1
-
-        # Keep only standards with usable sensitivity functions
-        # when actually running.
-        if args.run:
-
-            available_standards = [
-                std
-                for std in available_standards
-                if std["sensfile"].exists()
-            ]
-
-            if not available_standards:
-                print(
-                    "No usable sensitivity functions "
-                    "for this setup."
-                )
+        usable_science: list[dict[str, object]] = []
+        for item in science:
+            spec1d = find_spec1d(science_dir, str(item["filename"]))
+            if spec1d is None:
+                print(f"WARNING: no spec1d for science {item['filename']}")
                 continue
-
-        # -----------------------------------------------------
-        # Match each science exposure to nearest standard
-        # -----------------------------------------------------
-
-        assignments = []
-
-        for sci in science:
-
-            science_spec1d = find_spec1d(
-                science_dir,
-                sci["filename"],
-            )
-
-            if science_spec1d is None:
-                print(
-                    f"WARNING: no spec1d found for science "
-                    f"{sci['filename']}"
-                )
-                continue
-
-            nearest = min(
-                available_standards,
-                key=lambda std: abs(
-                    std["mjd"] - sci["mjd"]
-                ),
-            )
-
-            delta_days = abs(
-                nearest["mjd"]
-                - sci["mjd"]
-            )
-
-            delta_minutes = (
-                delta_days
-                * 24.0
-                * 60.0
-            )
-
-            assignments.append(
-                {
-                    "science": sci,
-                    "science_spec1d": science_spec1d,
-                    "standard": nearest,
-                    "delta_minutes": delta_minutes,
-                }
-            )
-
-        # -----------------------------------------------------
-        # Print association table
-        # -----------------------------------------------------
-
-        print()
-        print(
-            "SCIENCE → STANDARD ASSOCIATIONS"
-        )
-        print("-" * 78)
-
-        for item in assignments:
-
-            sci = item["science"]
-            std = item["standard"]
-
-            print(
-                f"{sci['target']:20s}  "
-                f"{sci['filename']:25s}  "
-                f"→ {std['target']:12s}  "
-                f"Δt={item['delta_minutes']:6.1f} min"
-            )
-
-        if not assignments:
+            item = dict(item)
+            item["spec1d"] = spec1d
+            usable_science.append(item)
+        if not usable_science:
             continue
 
-        # -----------------------------------------------------
-        # Copy science spec1d files into Fluxed/
-        # -----------------------------------------------------
+        groups = []
+        for members in consecutive_groups(usable_science):
+            target = str(members[0]["target"])
+            midpoint = sum(float(member["mjd"]) for member in members) / len(members)
+            default = nearest_standard(candidates, midpoint)
+            groups.append({
+                "id": group_id(target, members),
+                "target": target,
+                "members": members,
+                "midpoint": midpoint,
+                "default": default,
+                "standard": default,
+                "manual": False,
+            })
+        plans.append({
+            "channel": channel,
+            "setup": setup,
+            "setup_dir": setup_dir,
+            "science_dir": science_dir,
+            "sens_dir": sens_dir,
+            "fluxed_dir": setup_dir / "Fluxed",
+            "flux_files_dir": setup_dir / "FluxFiles",
+            "standards": candidates,
+            "groups": groups,
+        })
+    return plans
 
-        flux_rows = []
 
-        for item in assignments:
+def proposal_rows(plans: list[dict[str, object]]) -> list[dict[str, str]]:
+    rows = []
+    for plan in plans:
+        for group in plan["groups"]:
+            standard = group["standard"]
+            midpoint = float(group["midpoint"])
+            rows.append({
+                "channel": str(plan["channel"]).upper(),
+                "setup": str(plan["setup"]),
+                "group_id": str(group["id"]),
+                "target": str(group["target"]),
+                "science_filenames": " ".join(str(member["filename"]) for member in group["members"]),
+                "group_mid_mjd": f"{midpoint:.8f}",
+                "standard_filename": str(standard["filename"]),
+                "standard_target": str(standard["target"]),
+                "standard_mjd": f"{float(standard['mjd']):.8f}",
+                "delta_minutes": f"{abs(float(standard['mjd']) - midpoint) * 1440.0:.1f}",
+            })
+    return rows
 
-            source = item["science_spec1d"]
 
-            destination = (
-                fluxed_dir
-                / source.name
-            )
+def apply_reviewed_associations(
+    plans: list[dict[str, object]], reviewed: dict[tuple[str, str, str], dict[str, str]],
+) -> None:
+    """Apply reviewed group choices and reject stale or invalid choices."""
+    expected = {
+        association_key(str(plan["channel"]), str(plan["setup"]), str(group["id"]))
+        for plan in plans for group in plan["groups"]
+    }
+    missing = expected - set(reviewed)
+    extra = set(reviewed) - expected
+    if missing or extra:
+        raise RuntimeError("association file does not match this inventory. Run the dry run with --reset-associations")
 
-            if (
-                not destination.exists()
-                or args.overwrite_fluxed
-            ):
-                shutil.copy2(
-                    source,
-                    destination,
+    for plan in plans:
+        choices = {str(standard["filename"]): standard for standard in plan["standards"]}
+        for group in plan["groups"]:
+            key = association_key(str(plan["channel"]), str(plan["setup"]), str(group["id"]))
+            choice = reviewed[key]["standard_filename"]
+            if choice not in choices:
+                raise RuntimeError(
+                    f"{group['id']}: {choice} is not a usable standard in "
+                    f"{str(plan['channel']).upper()} {plan['setup']}"
                 )
+            group["standard"] = choices[choice]
+            group["manual"] = choice != str(group["default"]["filename"])
 
-            flux_rows.append(
-                (
-                    destination,
-                    item["standard"]["sensfile"],
-                )
+
+def print_associations(plans: list[dict[str, object]]) -> int:
+    """Print one concise line for every consecutive science group."""
+    count = 0
+    print("\nScience-group associations")
+    for plan in plans:
+        for group in plan["groups"]:
+            members = group["members"]
+            exposures = ",".join(Path(str(member["filename"])).stem[-4:] for member in members)
+            standard = group["standard"]
+            midpoint = float(group["midpoint"])
+            minutes = abs(float(standard["mjd"]) - midpoint) * 1440.0
+            source = "manual" if group["manual"] else "automatic"
+            print(
+                f"  {str(plan['channel']).upper()} {plan['setup']} {group['target']} "
+                f"[{exposures}] -> {standard['target']} ({minutes:.1f} min, {source})"
             )
+            count += len(members)
+    return count
 
-        # -----------------------------------------------------
-        # Write PypeIt .flux file
-        # -----------------------------------------------------
 
-        flux_file = (
-            flux_files_dir
-            / f"{channel}_{setup}.flux"
-        )
+def build_sensfuncs(plans: list[dict[str, object]], force: bool) -> int:
+    """Build only the sensitivity functions selected by the reviewed plan."""
+    selected: dict[Path, tuple[dict[str, object], dict[str, object]]] = {}
+    for plan in plans:
+        for group in plan["groups"]:
+            standard = group["standard"]
+            selected[Path(standard["sensfile"])] = (plan, standard)
 
+    complete = 0
+    for sensfile, (plan, standard) in sorted(selected.items(), key=lambda item: str(item[0])):
+        sensfile.parent.mkdir(parents=True, exist_ok=True)
+        if sensfile.exists() and not force:
+            print(f"Sensitivity function kept: {sensfile.name}")
+            complete += 1
+            continue
+        print(f"Building sensitivity function: {sensfile.name}")
+        if run_command(["pypeit_sensfunc", str(standard["spec1d"]), "-o", str(sensfile)], Path(plan["setup_dir"])):
+            complete += 1
+        else:
+            print(f"WARNING: sensitivity function failed for {standard['target']}")
+    return complete
+
+
+def flux_calibrate(plans: list[dict[str, object]], date: str, overwrite: bool) -> int:
+    """Copy selected spectra, write flux files, and run PypeIt calibration."""
+    total = 0
+    for plan in plans:
+        rows = []
+        for group in plan["groups"]:
+            standard = group["standard"]
+            sensfile = Path(standard["sensfile"])
+            if not sensfile.exists():
+                print(f"WARNING: skipping {group['id']}. Missing {sensfile.name}")
+                continue
+            for member in group["members"]:
+                source = Path(member["spec1d"])
+                destination = Path(plan["fluxed_dir"]) / source.name
+                Path(plan["fluxed_dir"]).mkdir(parents=True, exist_ok=True)
+                if not destination.exists() or overwrite:
+                    shutil.copy2(source, destination)
+                rows.append((destination, sensfile))
+        if not rows:
+            continue
+
+        flux_files_dir = Path(plan["flux_files_dir"])
+        flux_files_dir.mkdir(parents=True, exist_ok=True)
+        flux_file = flux_files_dir / f"{plan['channel']}_{plan['setup']}.flux"
         with flux_file.open("w") as handle:
-
-            handle.write(
-                "# Auto-generated NGPS flux calibration file\n"
-            )
-
-            handle.write(
-                f"# Date: {args.date}\n"
-            )
-
-            handle.write(
-                f"# Channel: {channel.upper()}\n"
-            )
-
-            handle.write(
-                f"# Setup: {setup}\n\n"
-            )
-
-            handle.write("flux read\n")
-            handle.write(
-                "    filename | sensfile\n"
-            )
-
-            for science_file, sensfile in flux_rows:
-
-                handle.write(
-                    f"    {science_file} | {sensfile}\n"
-                )
-
+            handle.write("# NGPS flux calibration file\n")
+            handle.write(f"# Date: {date}\n")
+            handle.write("flux read\n    filename | sensfile\n")
+            for science_file, sensfile in rows:
+                handle.write(f"    {science_file} | {sensfile}\n")
             handle.write("flux end\n")
+        print(f"Flux-calibrating {len(rows)} science spectrum/s: {plan['channel'].upper()} {plan['setup']}")
+        if run_command(["pypeit_flux_calib", str(flux_file)], Path(plan["setup_dir"])):
+            total += len(rows)
+    return total
 
-        print()
-        print(
-            f"Flux file written:"
-        )
-        print(flux_file)
 
-        total_flux_jobs += len(flux_rows)
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Plan and run grouped NGPS flux calibration.")
+    parser.add_argument("date", help="UT observing date in YYYYMMDD format")
+    parser.add_argument("--run", action="store_true", help="Build sensitivity functions and flux-calibrate the reviewed plan")
+    parser.add_argument("--force-sensfunc", action="store_true", help="Regenerate existing sensitivity functions")
+    parser.add_argument("--overwrite-fluxed", action="store_true", help="Replace existing Fluxed spectrum copies")
+    parser.add_argument("--reset-associations", action="store_true", help="Write a new automatic association proposal during a dry run")
+    args = parser.parse_args()
+    if args.run and args.reset_associations:
+        parser.error("run --reset-associations first, review the file, then run --run")
 
-        # -----------------------------------------------------
-        # Apply flux calibration
-        # -----------------------------------------------------
+    root = Path(os.environ.get("NGPS_WORK_ROOT", Path.home() / "ngps_data" / "work")) / args.date
+    inventory = root / "science_standard_inventory.csv"
+    associations_file = root / "science_standard_associations.csv"
+    if not inventory.exists():
+        print(f"ERROR: inventory file does not exist: {inventory}")
+        print("Run ngps_inventory_standards.py first.")
+        return 1
+    with inventory.open(newline="") as handle:
+        rows: list[dict[str, object]] = list(csv.DictReader(handle))
+    for row in rows:
+        row["mjd"] = float(str(row["mjd"]))
 
-        if args.run:
+    plans = collect_plans(root, rows)
+    if not plans:
+        print("ERROR: no usable science and standard-star groups found.")
+        return 1
 
-            run_command(
-                [
-                    "pypeit_flux_calib",
-                    str(flux_file),
-                ],
-                cwd=setup_dir,
-            )
-
-    # ---------------------------------------------------------
-    # Final summary
-    # ---------------------------------------------------------
-
-    print()
-    print("=" * 78)
-
-    if args.run:
-        print("FLUX CALIBRATION RUN COMPLETE")
+    if associations_file.exists() and not args.reset_associations:
+        try:
+            apply_reviewed_associations(plans, read_associations(associations_file))
+        except RuntimeError as error:
+            print(f"ERROR: {error}")
+            return 1
+        print(f"Using reviewed associations: {associations_file}")
     else:
-        print("DRY RUN COMPLETE")
+        if args.run:
+            print(f"ERROR: association file does not exist: {associations_file}")
+            print("Run the dry run first, review the file, then run --run.")
+            return 1
+        write_associations(associations_file, proposal_rows(plans))
+        print(f"Created association proposal: {associations_file}")
+        print("Each row is one consecutive science group. Edit standard_filename if needed.")
 
-    print("=" * 78)
-
-    print(
-        f"Potential sensitivity functions: "
-        f"{total_sensfuncs}"
-    )
-
-    print(
-        f"Science spectra assigned: "
-        f"{total_flux_jobs}"
-    )
-
+    assigned = print_associations(plans)
     if not args.run:
+        print("\nDry run complete. No spectra were flux-calibrated.")
+        print(f"Review or edit: {associations_file}")
+        print(f"Then run: python scripts/ngps_flux_calibrate.py {args.date} --run")
+        return 0
 
-        print()
-        print(
-            "No files were flux calibrated."
-        )
-
-        print(
-            "Review the associations above, then run:"
-        )
-
-        print()
-        print(
-            f"python {Path(__file__)} "
-            f"{args.date} --run"
-        )
-
+    sensfuncs = build_sensfuncs(plans, args.force_sensfunc)
+    fluxed = flux_calibrate(plans, args.date, args.overwrite_fluxed)
+    print("\nFlux calibration complete")
+    print(f"Sensitivity functions available: {sensfuncs}")
+    print(f"Science spectra assigned: {assigned}")
+    print(f"Science spectra flux-calibrated: {fluxed}")
     return 0
 
 

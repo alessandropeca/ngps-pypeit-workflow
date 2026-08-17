@@ -56,6 +56,10 @@ def main() -> int:
             setup_root.glob("*/*.pypeit")
         ):
 
+            setup = pypeit_file.parent.name
+            if "_manual_" in setup or "_auto_" in setup:
+                continue
+
             text = pypeit_file.read_text()
 
             # Configuration/binning
@@ -69,8 +73,6 @@ def main() -> int:
                 if match
                 else "unknown"
             )
-
-            setup = pypeit_file.parent.name
 
             in_data = False
 

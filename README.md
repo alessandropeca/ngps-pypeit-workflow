@@ -11,7 +11,7 @@ operational wrapper. The official PypeIt project is
 ## Install once
 
 Choose folders for your own computer before running these commands. The two
-paths below are examples, not requirements; use any locations you prefer and
+paths below are examples, not requirements. Use any locations you prefer and
 keep them consistent.
 
 Note: The long strings such as `e9ed85c1a237c49626227f4227e323fc390def4b` are Git
@@ -55,7 +55,7 @@ export DATE=20260623
 export NIGHT="$NGPS_WORK_ROOT/$DATE"
 ```
 
-1. Copy raw FITS files into `$NIGHT/raw/`; do not modify or split them.
+1. Copy raw FITS files into `$NIGHT/raw/`. Do not modify or split them.
 
    ```bash
    mkdir -p "$NIGHT/raw"
@@ -106,13 +106,11 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    The **Cancel** button, or closing the window, leaves the existing PDF and all PypeIt
    products unchanged.
 
-   The **Re-norm U/G/R/I** buttons sets the quick-look y-range from one channel only; it is
+   The **Re-norm U/G/R/I** buttons set the quick-look y-range from one channel only. This is
    a display aid and does not change the detector counts or extracted spectrum.
 
    ```bash
-   python scripts/ngps_manual_target_extractions.py "$DATE" \
-     --target 'MGC+04-48-002' \
-     --exposure 0121
+   python scripts/ngps_manual_target_extractions.py "$DATE" --target 'MGC+04-48-002' --exposure 0121
    ```
 
    Alternatively, omit `--auto` during reduction to open the dashboard for each
@@ -125,48 +123,52 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    If you accept automatic or manual re-extraction after flux calibration,
    repeat step 4 before coadding.
 
-4. Flux-calibrate the 1D products. Only
-   the third command changes science products.
+4. Flux-calibrate the 1D products.
+
+   1. Build `science_standard_inventory.csv` from the reduced frames.
+   2. Create or display `science_standard_associations.csv`. Each row is one
+      consecutive group of science exposures with one assigned standard. No
+      spectra are changed.
+   3. Create the selected sensitivity functions and flux-calibrate copies in
+      `Fluxed/`.
+   4. Check that the `Fluxed/` files contain calibrated `FLAM` values.
 
    ```bash
-   # 1. Read-only inventory: confirm the science and standard-star exposures.
    python scripts/ngps_inventory_standards.py "$DATE"
-
-   # 2. Read-only dry run: print the proposed standard/science associations.
    python scripts/ngps_flux_calibrate.py "$DATE"
-
-   # 3. Run: create sensitivity functions and Fluxed science copies.
    python scripts/ngps_flux_calibrate.py "$DATE" --run
-
-   # 4. Read-only audit: verify that the Fluxed files contain FLAM.
    python scripts/ngps_audit_flux.py "$DATE"
    ```
+
+   Review `$NIGHT/science_standard_associations.csv` before `--run`. The
+   automatic proposal assigns one standard to every consecutive exposure of a
+   target within each channel and setup. If you prefer another standard, edit
+   `standard_filename` in that group row, rerun the dry run to confirm the
+   plan, then run the single-line `--run` command above. To discard edits and
+   create a new proposal, run `python scripts/ngps_flux_calibrate.py "$DATE" --reset-associations`.
 
 5. Find repeated observations by target name, then review and coadd them.
 
    ```bash
    python scripts/ngps_interactive_coadd.py "$DATE" --list-groups
-   python scripts/ngps_interactive_coadd.py "$DATE" \
-     --target 'MGC+04-48-002'
+   python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002'
    ```
 
    The window has one panel and checkbox per repeat exposure (e.g. 0121,
-   0122, 0123). Each panel contains that exposure’s three NGPS slicer traces;
-   accepting or rejecting an exposure keeps those three pieces together. The
+   0122, 0123). Each panel contains that exposure’s three NGPS slicer traces.
+   Accepting or rejecting an exposure keeps those three pieces together. The
    script asks before writing and again before coadding.
 
    To preselect observations:
 
    ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" \
-     --target 'MGC+04-48-002' --channel r --setup p200_ngps_r_B \
-     --exposure 0121 --exposure 0123
+   python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --channel r --setup p200_ngps_r_B --exposure 0121 --exposure 0123
    ```
 
 ## Additional notes
 
-Three slicer traces belong to one raw exposure, while obs numbers such as 0121, 0122, and 0123, might be repeated
-exposures of the same source (check that in observation log). 
+Three slicer traces belong to one raw exposure. Obs numbers such as 0121, 0122,
+and 0123 might be repeated exposures of the same source. Check the observation log.
 Coadd repeats within each channel/setup first, then correct telluric
 absorption, then merge U+G+R+I. Telluric correction and four-channel merging
 are not automated yet, so the current final reproducible product is a reviewed,
