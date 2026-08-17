@@ -286,10 +286,12 @@ def print_discarded_groups(review: dict[tuple[str, str, str], dict[str, str]]) -
     print("target                    channel  setup                 exposures       reason")
     for row in sorted(discarded, key=lambda item: (item["target"], item["channel"], item["setup"])):
         note = f" | note: {row['notes']}" if row["notes"] else ""
-        print(
-            f"{row['target']:<25} {row['channel']:<7} {row['setup']:<21} "
-            f"{row['exposures']:<15} {row['reason']}{note}"
-        )
+        exposures = [item.strip() for item in row["exposures"].split(",") if item.strip()]
+        for exposure in exposures or [""]:
+            print(
+                f"{row['target']:<25} {row['channel']:<7} {row['setup']:<21} "
+                f"{exposure:<15} {row['reason']}{note}"
+            )
 
 
 def choose_groups(groups: list[ObservationGroup]) -> list[ObservationGroup]:
