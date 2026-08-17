@@ -14,6 +14,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -243,14 +244,19 @@ def update_coadd_review(root: Path, groups: list[ObservationGroup]) -> dict[tupl
             generated["notes"] = saved["notes"]
         updated.append(generated)
 
-    with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=COADD_REVIEW_FIELDS)
-        writer.writeheader()
-        writer.writerows(updated)
+    write_coadd_review(path, updated)
     return {
         (row["target"].casefold(), row["channel"].lower(), row["setup"]): row
         for row in updated
     }
+
+
+def write_coadd_review(path: Path, rows: list[dict[str, str]]) -> None:
+    """Write the persistent coadd-review table."""
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=COADD_REVIEW_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def reviewable_groups(
@@ -340,21 +346,30 @@ def candidates_for_group(
     return candidates, central_slit, standard_spat
 
 
-def review(candidates: list[Candidate], target: str, channel: str, setup: str) -> list[Candidate] | None:
-    """Review repeat exposures while keeping each exposure's slicer traces together."""
+def coadd_qa_path(root: Path, target: str, channel: str, setup: str) -> Path:
+    stem = f"{safe_name(target)}_{channel}_{safe_name(setup)}_coadd_review.pdf"
+    return root / "CoaddQA" / safe_name(target) / stem
+
+
+def review(
+    candidates: list[Candidate], target: str, channel: str, setup: str,
+    output: Path, interactive: bool,
+) -> list[Candidate] | None:
+    """Review repeat exposures and save the accepted or automatic QA plot."""
     if not candidates:
         return None
     by_exposure: dict[str, list[Candidate]] = {}
     for item in candidates:
         by_exposure.setdefault(item.raw_filename, []).append(item)
     exposures = list(by_exposure)
+    height = min(8.0, max(5.0, 1.55 * (len(exposures) + 1) + 0.5))
     figure, axes = plt.subplots(
-        len(exposures) + 1,
-        1,
-        figsize=(14, 2.75 * (len(exposures) + 1)),
-        sharex=True,
+        len(exposures) + 1, 1, figsize=(10.2, height), sharex=True,
     )
-    figure.subplots_adjust(left=0.26, bottom=0.06, top=0.93, hspace=0.38)
+    figure.subplots_adjust(
+        left=0.24 if interactive else 0.08,
+        right=0.98, bottom=0.08, top=0.91, hspace=0.38,
+    )
     axes = np.atleast_1d(axes)
     included = {exposure: True for exposure in exposures}
     plotted = {exposure: [] for exposure in exposures}
@@ -362,7 +377,7 @@ def review(candidates: list[Candidate], target: str, channel: str, setup: str) -
     overlay = axes[0]
     overlay.set_title(
         f"Proposed coadd: {target} | {channel.upper()} | {setup}\n"
-        "One panel per repeat exposure; its three slicer traces stay together"
+        "One panel per repeat exposure. Its three slicer traces stay together"
     )
     overlay.set_ylabel("Flux")
     line_styles = ("-", "--", ":")
@@ -378,11 +393,7 @@ def review(candidates: list[Candidate], target: str, channel: str, setup: str) -
             )[0]
             plotted[exposure].append(line)
             line = panel.plot(
-                wave,
-                flux,
-                color=colour,
-                ls=line_styles[trace_index % 3],
-                lw=0.75,
+                wave, flux, color=colour, ls=line_styles[trace_index % 3], lw=0.75,
                 label=f"SLIT{item.slit_id:04d}",
             )[0]
             plotted[exposure].append(line)
@@ -390,44 +401,63 @@ def review(candidates: list[Candidate], target: str, channel: str, setup: str) -
         panel.set_ylabel("Flux")
         panel.set_title(
             f"Exposure {exposure_label(exposure)}: {len(items)} slicer trace(s)",
-            loc="left",
-            fontsize=9,
+            loc="left", fontsize=9,
         )
         panel.legend(fontsize=7, loc="upper right")
     overlay.legend(ncol=min(4, len(exposures)), fontsize=8, loc="upper right")
     axes[-1].set_xlabel("Vacuum wavelength (Å)")
 
-    labels = [exposure_label(exposure) for exposure in exposures]
-    label_to_exposure = dict(zip(labels, exposures))
-    check_axis = figure.add_axes((0.02, 0.27, 0.22, 0.62))
-    checks = CheckButtons(check_axis, labels, [included[exposure] for exposure in exposures])
-    check_axis.set_title("Include exposure\n(all its slices)", fontsize=9)
-    for label in checks.labels:
-        label.set_fontsize(7)
-    result = {"accepted": False}
+    result = {"accepted": not interactive}
+    control_axes = []
+    button_widgets = []
+    if interactive:
+        labels = [exposure_label(exposure) for exposure in exposures]
+        label_to_exposure = dict(zip(labels, exposures))
+        check_axis = figure.add_axes((0.02, 0.30, 0.20, 0.56))
+        control_axes.append(check_axis)
+        checks = CheckButtons(check_axis, labels, [included[exposure] for exposure in exposures])
+        check_axis.set_title("Include exposure\n(all its slices)", fontsize=9)
+        for label in checks.labels:
+            label.set_fontsize(7)
 
-    def toggle(label: str) -> None:
-        exposure = label_to_exposure[label]
-        included[exposure] = not included[exposure]
-        for line in plotted[exposure]:
-            line.set_alpha(1.0 if included[exposure] else 0.12)
-        figure.canvas.draw_idle()
+        def toggle(label: str) -> None:
+            exposure = label_to_exposure[label]
+            included[exposure] = not included[exposure]
+            for line in plotted[exposure]:
+                line.set_alpha(1.0 if included[exposure] else 0.12)
+            figure.canvas.draw_idle()
 
-    def accept(event) -> None:
-        result["accepted"] = True
-        plt.close(figure)
+        def accept(event) -> None:
+            result["accepted"] = True
+            plt.close(figure)
 
-    def cancel(event) -> None:
-        plt.close(figure)
+        def cancel(event) -> None:
+            plt.close(figure)
 
-    checks.on_clicked(toggle)
-    accept_axis = figure.add_axes((0.03, 0.18, 0.18, 0.05))
-    cancel_axis = figure.add_axes((0.03, 0.11, 0.18, 0.05))
-    Button(accept_axis, "Accept selection").on_clicked(accept)
-    Button(cancel_axis, "Cancel").on_clicked(cancel)
-    plt.show()
-    if not result["accepted"]:
-        return None
+        checks.on_clicked(toggle)
+        accept_axis = figure.add_axes((0.03, 0.20, 0.17, 0.055))
+        cancel_axis = figure.add_axes((0.03, 0.12, 0.17, 0.055))
+        control_axes.extend((accept_axis, cancel_axis))
+        accept_button = Button(accept_axis, "Accept selection", color="#D7F2DF", hovercolor="#BCE8CA")
+        cancel_button = Button(cancel_axis, "Cancel", color="#FFD9D9", hovercolor="#F2BFBF")
+        accept_button.on_clicked(accept)
+        cancel_button.on_clicked(cancel)
+        button_widgets.extend((accept_button, cancel_button))
+        plt.show()
+        if not result["accepted"]:
+            plt.close(figure)
+            return None
+        for axis in control_axes:
+            axis.remove()
+        figure.subplots_adjust(left=0.08)
+        figure.text(0.98, 0.015, "REVIEWED", ha="right", va="bottom", fontsize=8, color="0.35")
+    else:
+        figure.text(0.98, 0.015, "AUTO MODE", ha="right", va="bottom", fontsize=8, color="0.35")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output)
+    print(f"Saved coadd review PDF: {output}")
+    plt.close(figure)
     return [item for item in candidates if included[item.raw_filename]]
 
 
@@ -454,6 +484,14 @@ def write_coadd_input(out_dir: Path, target: str, channel: str, setup: str,
     return coadd_file, output
 
 
+def run_coadd(coadd_file: Path, out_dir: Path) -> int:
+    """Run PypeIt coaddition from the active Python environment."""
+    runner = Path(sys.executable).with_name("pypeit_coadd_1dspec")
+    command = [str(runner) if runner.is_file() else "pypeit_coadd_1dspec", str(coadd_file)]
+    command.extend(("--par_outfile", str(out_dir / "coadd1d.par")))
+    return subprocess.run(command).returncode
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Find, review, and optionally coadd repeat flux-calibrated NGPS observations."
@@ -470,7 +508,13 @@ def main() -> int:
     )
     parser.add_argument("--list-groups", action="store_true", help="List target/channel/setup groups and exit")
     parser.add_argument("--summary", action="store_true", help="Print candidates without opening the review window")
+    parser.add_argument("--auto", action="store_true", help="Skip review windows and save automatic coadd-review PDFs")
+    parser.add_argument("--all", action="store_true", help="Automatically coadd every reviewable group. Requires --auto")
     args = parser.parse_args()
+    if args.all and not args.auto:
+        parser.error("--all requires --auto")
+    if args.all and args.target:
+        parser.error("--all processes every reviewable group. Do not combine it with --target")
 
     root = Path(os.environ.get("NGPS_WORK_ROOT", Path.home() / "ngps_data" / "work")) / args.date
     inventory = root / "science_standard_inventory.csv"
@@ -495,12 +539,15 @@ def main() -> int:
         print_discarded_groups(coadd_review)
         return 0
 
-    if args.target is None:
+    if not args.all and args.target is None:
         parser.error("Specify --target, or use --list-groups to discover target names")
-    groups = find_observation_groups(
-        rows, args.target, args.channel, args.setup, args.exposure
-    )
-    groups = reviewable_groups(groups, coadd_review)
+    if args.all:
+        groups = reviewable_groups(all_groups, coadd_review)
+    else:
+        groups = find_observation_groups(
+            rows, args.target, args.channel, args.setup, args.exposure
+        )
+        groups = reviewable_groups(groups, coadd_review)
     if not groups:
         parser.error("No matching reviewable repeat observations found")
     if args.summary:
@@ -516,7 +563,9 @@ def main() -> int:
                 print(f"  {candidate_label(item):23s}  {item.obj_id}")
         return 0
 
-    for group in choose_groups(groups):
+    selected_groups = groups if args.all else choose_groups(groups)
+    completed = 0
+    for group in selected_groups:
         candidates, central_slit, standard_spat = candidates_for_group(root, rows, group)
         print(
             f"\nReviewing {group.target} | {group.channel.upper()} | {group.setup}"
@@ -525,32 +574,46 @@ def main() -> int:
         )
         if not candidates:
             continue
-        accepted = review(candidates, group.target, group.channel, group.setup)
+        accepted = review(
+            candidates, group.target, group.channel, group.setup,
+            coadd_qa_path(root, group.target, group.channel, group.setup),
+            interactive=not args.auto,
+        )
         if not accepted:
-            print("Coadd cancelled; no files were written for this group.")
+            print("Coadd not accepted. No selection, coadd input, or coadd product was written.")
             continue
         exposure_count = len({item.raw_filename for item in accepted})
+        if exposure_count < 2:
+            print("At least two exposures are required for a coadd. No files were written.")
+            continue
         print(
             f"Accepted {exposure_count} of {len(group.rows)} repeat exposure(s), "
             f"containing {len(accepted)} slicer trace(s)."
         )
-        if not ask_yes_no("Write this coadd selection and PypeIt input file?"):
+        if not args.all and not ask_yes_no("Write this coadd selection and PypeIt input file?"):
             print("No files were written for this group.")
             continue
         out_dir = root / "Coadds" / (
             f"{safe_name(group.target)}_{group.channel}_{safe_name(group.setup)}"
         )
+        if out_dir.exists():
+            print(f"Coadd output already exists. Keeping it unchanged: {out_dir}")
+            continue
         coadd_file, output = write_coadd_input(
             out_dir, group.target, group.channel, group.setup, central_slit, accepted
         )
         print(f"Coadd input: {coadd_file}\nExpected output: {output}")
-        if ask_yes_no("Run PypeIt coaddition now?"):
-            status = subprocess.run([
-                "pypeit_coadd_1dspec", str(coadd_file),
-                "--par_outfile", str(out_dir / "coadd1d.par"),
-            ]).returncode
+        if args.all or ask_yes_no("Run PypeIt coaddition now?"):
+            status = run_coadd(coadd_file, out_dir)
             if status != 0:
                 return status
+            review_row = coadd_review[review_key(group)]
+            review_row["status"] = "coadded"
+            review_row["reason"] = "PypeIt coadd completed"
+            write_coadd_review(review_path(root), list(coadd_review.values()))
+            completed += 1
+    if args.all:
+        print(f"\nAutomatic coadds completed: {completed}")
     return 0
 
 

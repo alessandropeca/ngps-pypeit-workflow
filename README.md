@@ -186,6 +186,24 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    Accepting or rejecting an exposure keeps those three pieces together. The
    script asks before writing and again before coadding.
 
+   **Accept selection** saves a review PDF and continues to the write prompt.
+   **Cancel** or closing the window writes no selection or coadd product.
+
+   To trust the automatic selection without opening the window, save the same
+   coadd-review PDF for one target with:
+
+   ```bash
+   python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --auto
+   ```
+
+   After reviewing `coadd_review.csv`, automatically write and run every
+   reviewable coadd. This also saves one automatic review PDF per coadd. Existing
+   coadd directories are kept unchanged.
+
+   ```bash
+   python scripts/ngps_interactive_coadd.py "$DATE" --all --auto
+   ```
+
    To preselect observations:
 
    ```bash
