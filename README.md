@@ -175,25 +175,12 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_interactive_coadd.py "$DATE" --list-groups
    ```
 
-   Review the CSV, then open one target:
+   After reviewing `coadd_review.csv`, automatically write and run every
+   reviewable coadd. This saves one automatic review PDF per coadd. Existing
+   coadd directories are kept unchanged.
 
    ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002'
-   ```
-
-   The window has one panel and checkbox per repeat exposure (e.g. 0121,
-   0122, 0123). Each panel contains that exposure’s three NGPS slicer traces.
-   Accepting or rejecting an exposure keeps those three pieces together. The
-   script asks before writing and again before coadding.
-
-   **Accept selection** saves a review PDF and continues to the write prompt.
-   **Cancel** or closing the window writes no selection or coadd product.
-
-   To trust the automatic selection without opening the window, save the same
-   coadd-review PDF for one target with:
-
-   ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --auto
+   python scripts/ngps_interactive_coadd.py "$DATE" --all --auto
    ```
 
    To open the review window for every reviewable group, one after another:
@@ -202,15 +189,26 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_interactive_coadd.py "$DATE" --all
    ```
 
-   After reviewing `coadd_review.csv`, automatically write and run every
-   reviewable coadd. This also saves one automatic review PDF per coadd. Existing
-   coadd directories are kept unchanged.
+   The window has one panel per repeat exposure (e.g. 0121, 0122, 0123). Each
+   panel contains that exposure’s three NGPS slicer traces. The selection
+   buttons include or exclude one whole exposure, keeping its three traces
+   together. The **Accept selection** button saves a review PDF and continues
+   to the write prompt. The **Cancel** button, or closing the window, writes no
+   selection or coadd product.
+
+   To work with one target only, open its review window:
 
    ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --all --auto
+   python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002'
    ```
 
-   To preselect observations:
+   To accept one target’s automatic selection without opening its window:
+
+   ```bash
+   python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --auto
+   ```
+
+   To preselect observations for one target:
 
    ```bash
    python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --channel r --setup p200_ngps_r_B --exposure 0121 --exposure 0123
@@ -221,9 +219,9 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 Three slicer traces belong to one raw exposure. Obs numbers such as 0121, 0122,
 and 0123 might be repeated exposures of the same source. Check the observation log.
 Coadd repeats within each channel/setup first, then correct telluric
-absorption, then merge U+G+R+I. Telluric correction and four-channel merging
-are not automated yet, so the current final reproducible product is a reviewed,
-flux-calibrated coadd per target/channel/setup.
+absorption. Keep the U, G, R, and I products separate. Telluric correction and
+four-channel merging are not automated yet, so the current final reproducible
+product is a reviewed, flux-calibrated coadd per target/channel/setup.
 
 For the fuller guide, including background and troubleshooting, see
 [NGPS_REDUCTION_GUIDE.md](docs/NGPS_REDUCTION_GUIDE.md).
