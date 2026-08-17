@@ -63,7 +63,10 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    ```
 
 2. Reduce every valid channel/setup and save an automatic extraction-review PDF
-   for every science exposure in the entire night. This does not pause for decisions. However, if you omit the `--auto` a dashboard for each file will open and you can review and change the automatic settings (see below).
+   for every science exposure in the entire night. This does not pause for decisions.
+   `--auto` keeps existing extracted spectra and refreshes the review PDFs. It
+   does not overwrite an extraction. If you omit `--auto`, a dashboard opens
+   for each exposure so you can review and change the automatic settings.
 
    ```bash
    python scripts/ngps_reduce_all_configs.py "$DATE" --auto
@@ -93,8 +96,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    Manual positions inherit PypeIt's measured FWHM separately for every
    channel/slicer. Therefore, you can change pixel position but not extraction width.
 
-   The **Accept Manual/Automatic** buttons make the script run an isolated
-   one-exposure PypeIt setup and replaces only that exposure's derived
+   The **Accept Manual** and **Accept Automatic** buttons run an isolated
+   one-exposure PypeIt setup. They replace only that exposure's derived
    `spec1d/spec2d` products (images and files) in the baseline setup.
 
    The **Return to automatic** button clears the manual aperture and restores the original
@@ -119,7 +122,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_reduce_all_configs.py "$DATE"
    ```
 
-   If a manual setup is rerun, flux-calibrate its new products before coadding.
+   If you accept automatic or manual re-extraction after flux calibration,
+   repeat step 4 before coadding.
 
 4. Flux-calibrate the 1D products. Only
    the third command changes science products.
