@@ -171,7 +171,9 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    finds the nearest validated standard and writes it as an `automatic fallback`.
    It records the fallback and continues automatically. If no validated standard
    exists, it stops that group from being flux-calibrated, moves any old copy to
-   `Fluxed_invalid_standard/`, and calibrates the remaining safe groups.
+   `Fluxed_invalid_standard/`, and calibrates the remaining safe groups. The
+   terminal identifies the target, channel, and setup. That configuration keeps
+   only its reduced counts-level products and has no Fluxed product or coadd.
 
    During `--run`, every available standard in a channel/setup is compared with
    its known PypeIt reference spectrum. A missing, non-finite, or discrepant

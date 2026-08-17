@@ -603,9 +603,19 @@ def main() -> int:
         print(f"Review: {associations_file}")
     skipped_groups = set(unresolved) | set(blocked_groups)
     if skipped_groups:
-        print("\nNo safe standard is available. These groups will not be flux-calibrated:")
-        for identifier in sorted(skipped_groups):
-            print(f"  {identifier}")
+        print("\nSome configurations cannot be flux-calibrated safely:")
+        for plan in plans:
+            for group in plan["groups"]:
+                if str(group["id"]) not in skipped_groups:
+                    continue
+                print(
+                    f"  {group['target']} | {str(plan['channel']).upper()} | {plan['setup']}: "
+                    "no validated standard-star observation is available for this configuration."
+                )
+                print(
+                    "    Keeping the reduced counts-level products only. "
+                    "No Fluxed product or coadd will be made."
+                )
         print(f"Review: {sensitivity_review_file}")
 
     sensfuncs = sum(attempted.values())
