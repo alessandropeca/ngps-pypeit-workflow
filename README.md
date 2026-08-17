@@ -292,7 +292,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
    To omit the unreliable U/G wavelength edges from the display, plot U only
    from 3100–4350 Å and G from 4280 Å onward. This does not modify any FITS
-   spectrum.
+   spectrum. This can be useful because U and G are often noisier at those
+   wavelength edges.
 
    ```bash
    python scripts/ngps_plot_final_spectra.py "$DATE" --all --noUGedges
