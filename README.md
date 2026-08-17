@@ -290,8 +290,9 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_plot_final_spectra.py "$DATE" --target 'NGC4102' --configuration C
    ```
 
-   If isolated bad points make a panel difficult to read, regenerate the plots
-   with display-only robust y-limits. This does not modify any FITS spectrum.
+   If extreme points at the wavelength edges make a panel difficult to read,
+   regenerate the plots with display-only edge-artifact filtering. This does not
+   modify any FITS spectrum or remove valid interior features.
 
    ```bash
    python scripts/ngps_plot_final_spectra.py "$DATE" --all --robust-y

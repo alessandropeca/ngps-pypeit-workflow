@@ -91,15 +91,32 @@ def read_spectrum(path: Path) -> tuple[np.ndarray, np.ndarray]:
     return wave[good], flux[good]
 
 
-def display_limits(fluxes: list[np.ndarray], robust: bool) -> tuple[float, float]:
-    """Return full or display-robust linear limits without altering spectra."""
+def display_limits(fluxes: list[np.ndarray]) -> tuple[float, float]:
+    """Return full linear limits for the samples shown in the plot."""
     values = np.concatenate(fluxes)
-    if robust:
-        low, high = np.nanpercentile(values, (0.5, 99.5))
-    else:
-        low, high = np.nanmin(values), np.nanmax(values)
+    low, high = np.nanmin(values), np.nanmax(values)
     padding = 0.08 * (high - low) if high > low else max(abs(high) * 0.1, 1.0)
     return low - padding, high + padding
+
+
+def display_spectrum(
+    wave: np.ndarray, flux: np.ndarray, reject_edge_outliers: bool,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Optionally omit extreme wavelength-edge artifacts from a plot only."""
+    if not reject_edge_outliers or len(flux) < 40:
+        return wave, flux, 0
+    edge_size = max(5, int(np.ceil(len(flux) * 0.015)))
+    interior = flux[edge_size:-edge_size]
+    median = float(np.median(interior))
+    mad = float(np.median(np.abs(interior - median)))
+    spread = max(1.4826 * mad, float(np.percentile(interior, 84) - np.percentile(interior, 16)))
+    if not np.isfinite(spread) or spread <= 0:
+        return wave, flux, 0
+    edge = np.zeros(len(flux), dtype=bool)
+    edge[:edge_size] = True
+    edge[-edge_size:] = True
+    keep = ~(edge & (np.abs(flux - median) > 25.0 * spread))
+    return wave[keep], flux[keep], int((~keep).sum())
 
 
 def save_plot(
@@ -107,7 +124,13 @@ def save_plot(
     robust_y: bool,
 ) -> tuple[Path, Path]:
     """Save available channel coadds, using an empty panel for an unavailable channel."""
-    spectra = {channel: read_spectrum(path) for channel, path in paths.items()}
+    spectra: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for channel, path in paths.items():
+        wave, flux = read_spectrum(path)
+        wave, flux, removed = display_spectrum(wave, flux, robust_y)
+        if removed:
+            print(f"{channel.upper()} {target} {configuration}: omitted {removed} extreme edge sample(s) from the plot only")
+        spectra[channel] = wave, flux
 
     figure, axes = plt.subplots(len(CHANNELS), 1, figsize=(10.0, 7.0))
     figure.subplots_adjust(left=0.12, right=0.98, bottom=0.10, top=0.90, hspace=0.24)
@@ -134,9 +157,7 @@ def save_plot(
         axis.plot(wave, flux, lw=0.8, color=COLOURS[channel])
         axis.axhline(0, color="0.65", lw=0.7)
         axis.set_xlim(np.min(wave), np.max(wave))
-        axis.set_ylim(*display_limits([flux], robust_y))
-        if channel != "i":
-            axis.set_xticklabels([])
+        axis.set_ylim(*display_limits([flux]))
     axes[-1].set_xlabel("Wavelength (Å)")
     figure.text(
         0.025, 0.5, r"Flux ($10^{-17}$ erg s$^{-1}$ cm$^{-2}$ Å$^{-1}$)",
@@ -184,7 +205,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--robust-y", action="store_true",
-        help="Use the 0.5th to 99.5th percentile for plot y-limits without changing FITS data.",
+        help="Omit extreme edge artifacts from plot limits without changing FITS data.",
     )
     args = parser.parse_args()
     if args.all and args.configuration:
