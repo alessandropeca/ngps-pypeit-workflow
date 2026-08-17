@@ -166,7 +166,7 @@ def save_plot(
         axis.set_ylim(*display_limits([flux]))
     axes[-1].set_xlabel("Wavelength (Å)")
     figure.text(
-        0.025, 0.5, r"Flux ($10^{-17}$ erg s$^{-1}$ cm$^{-2}$ Å$^{-1}$)",
+        0.04, 0.5, r"Flux ($10^{-17}$ erg s$^{-1}$ cm$^{-2}$ Å$^{-1}$)",
         ha="center", va="center", rotation="vertical",
     )
     figure.suptitle(
