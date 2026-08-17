@@ -63,7 +63,7 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    ```
 
 2. Reduce every valid channel/setup and save an automatic extraction-review PDF
-   for every science exposure. This does not pause for decisions.
+   for every science exposure in the entire night. This does not pause for decisions. However, if you omit the `--auto` a dashboard for each file will open and you can review and change the automatic settings (see below).
 
    ```bash
    python scripts/ngps_reduce_all_configs.py "$DATE" --auto
@@ -76,31 +76,34 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    open "$NIGHT/ExtractionQA"
    ```
 
-   These PDFs are derived science-review products, so they stay alongside the
-   night's data and are deliberately not committed to GitHub. Each one has four
+   These PDFs are derived science-review products. Each one has four
    aligned U/G/R/I 2D panels, coloured spatial profiles, and a quick-look 1D
    panel.
-   The aligned 2D panels are for checking the same source in the three slicers;
-   they are not a science coadd.
+   The aligned 2D panels are for checking the same source in the three slicers, they are not a science coadd.
 
 3. To revise one already-reduced target whose automatic PDF does not look
    right, open the same dashboard interactively. This is a **single-target,
-   single-exposure review command**; use `ngps_reduce_all_configs.py` for a
-   whole night. `--auto` retains existing automatic extractions and only writes
-   the review PDFs; it does not overwrite a previous extraction.
-   **Manual extraction** enables a click in a channel
-   panel and links the position across U/G/R/I. **Adjust this channel only**
-   makes the next click move only the panel selected. The saved PDF is
-   replaced with your marked version. An accepted choice runs an isolated
-   one-exposure PypeIt setup and replaces only that exposure's derived
-   `spec1d/spec2d` products in the baseline setup.
+   single-exposure review command**.
+   
+   The **Manual extraction** button enables a click in a channel
+   panel and links the position across U/G/R/I.
+
+   The **Adjust this channel only** button makes the next click move only the panel selected. The saved PDF is
+   replaced with your marked version.
    Manual positions inherit PypeIt's measured FWHM separately for every
-   channel/slicer; the click changes position, not extraction width.
-   **Return to automatic** clears the manual aperture and restores the original
+   channel/slicer. Therefore, you can change pixel position but not extraction width.
+
+   The **Accept Manual/Automatic** buttons make the script run an isolated
+   one-exposure PypeIt setup and replaces only that exposure's derived
+   `spec1d/spec2d` products (images and files) in the baseline setup.
+
+   The **Return to automatic** button clears the manual aperture and restores the original
    profile and quick-look plots.
-   **Cancel**, or closing the window, leaves the existing PDF and all PypeIt
+
+   The **Cancel** button, or closing the window, leaves the existing PDF and all PypeIt
    products unchanged.
-   **Re-norm U/G/R/I** sets the quick-look y-range from one channel only; it is
+
+   The **Re-norm U/G/R/I** buttons sets the quick-look y-range from one channel only; it is
    a display aid and does not change the detector counts or extracted spectrum.
 
    ```bash
@@ -108,20 +111,6 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
      --target 'MGC+04-48-002' \
      --exposure 0121
    ```
-
-   Do not add `--all` yourself: it is used internally by the full-night
-   reduction driver.
-
-   Review outcomes, for example:
-
-   - **Accept automatic**: replaces the PDF with an **AUTO MODE** record; the
-     selected exposure is re-extracted in an isolated automatic setup, then
-     only its `spec1d/spec2d` products replace the previous versions.
-   - **Manual extraction** → click a position → **Accept manual**: replaces
-     the PDF with a **MANUAL MODE** record, then re-extracts only that exposure
-     in an isolated manual setup. Its `spec1d/spec2d` products replace the
-     previous versions.
-   - **Cancel** or close the window: changes nothing—not even the PDF.
 
    Alternatively, omit `--auto` during reduction to open the dashboard for each
    source as soon as the reductions finish:
@@ -132,7 +121,7 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
    If a manual setup is rerun, flux-calibrate its new products before coadding.
 
-4. Flux-calibrate the 1D products. This is a safe four-step sequence; only
+5. Flux-calibrate the 1D products. This is a safe four-step sequence; only
    the third command changes science products.
 
    ```bash
@@ -149,7 +138,7 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_audit_flux.py "$DATE"
    ```
 
-5. Find repeated observations by target name, then review and coadd them.
+6. Find repeated observations by target name, then review and coadd them.
 
    ```bash
    python scripts/ngps_interactive_coadd.py "$DATE" --list-groups
