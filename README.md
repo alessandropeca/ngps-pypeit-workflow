@@ -153,7 +153,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_flux_calibrate.py "$DATE" --run
    ```
 
-   Check that the `Fluxed/` files contain calibrated `FLAM` values.
+   Check that every safe science file has calibrated `FLAM` values. This also
+   reports groups skipped because no validated standard is available.
 
    ```bash
    python scripts/ngps_audit_flux.py "$DATE"
@@ -168,9 +169,9 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
    If a selected standard fails or has an invalid sensitivity function, the run
    finds the nearest validated standard and writes it as an `automatic fallback`.
-   It stops before flux calibration. Review the updated association file, run
-   the dry run, then run `--run` again. If no validated standard exists, it stops
-   without flux-calibrating that group.
+   It records the fallback and continues automatically. If no validated standard
+   exists, it stops that group from being flux-calibrated, moves any old copy to
+   `Fluxed_invalid_standard/`, and calibrates the remaining safe groups.
 
    During `--run`, every available standard in a channel/setup is compared with
    its known PypeIt reference spectrum. A missing, non-finite, or discrepant

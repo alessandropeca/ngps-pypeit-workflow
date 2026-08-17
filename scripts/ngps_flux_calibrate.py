@@ -479,12 +479,33 @@ def propose_fallbacks(
     return changed, unresolved
 
 
-def flux_calibrate(plans: list[dict[str, object]], date: str) -> int:
-    """Copy selected spectra, write flux files, and run PypeIt calibration."""
+def quarantine_fluxed_group(plan: dict[str, object], group: dict[str, object]) -> None:
+    """Move stale fluxed copies aside when their standard is not safe to use."""
+    quarantine = Path(plan["setup_dir"]) / "Fluxed_invalid_standard"
+    for member in group["members"]:
+        source = Path(plan["fluxed_dir"]) / Path(member["spec1d"]).name
+        if not source.exists():
+            continue
+        destination = quarantine / source.name
+        if destination.exists():
+            print(f"WARNING: keeping existing invalid copy: {destination.name}")
+            continue
+        quarantine.mkdir(parents=True, exist_ok=True)
+        shutil.move(source, destination)
+        print(f"Moved invalid fluxed copy aside: {destination}")
+
+
+def flux_calibrate(
+    plans: list[dict[str, object]], date: str, skipped_groups: set[str],
+) -> int:
+    """Copy and calibrate safe groups, keeping unsafe products out of Fluxed/."""
     total = 0
     for plan in plans:
         rows = []
         for group in plan["groups"]:
+            if str(group["id"]) in skipped_groups:
+                quarantine_fluxed_group(plan, group)
+                continue
             standard = group["standard"]
             sensfile = Path(standard["sensfile"])
             if not sensfile.exists():
@@ -578,29 +599,37 @@ def main() -> int:
     ]
     if fallbacks:
         write_associations(associations_file, proposal_rows(plans))
-        print("\nAutomatic fallback proposal written")
+        print("\nAutomatic fallback associations recorded")
         print(f"Review: {associations_file}")
-        print("No spectra were flux-calibrated. Run the dry run, then run --run again.")
-        return 0
-    unresolved.extend(blocked_groups)
-    if unresolved:
-        print("\nFlux calibration stopped. No safe standard can be used for:")
-        for identifier in sorted(set(unresolved)):
+    skipped_groups = set(unresolved) | set(blocked_groups)
+    if skipped_groups:
+        print("\nNo safe standard is available. These groups will not be flux-calibrated:")
+        for identifier in sorted(skipped_groups):
             print(f"  {identifier}")
         print(f"Review: {sensitivity_review_file}")
-        return 1
 
     sensfuncs = sum(attempted.values())
-    fluxed = flux_calibrate(plans, args.date)
-    if fluxed != assigned:
+    fluxed = flux_calibrate(plans, args.date, skipped_groups)
+    skipped_spectra = sum(
+        len(group["members"])
+        for plan in plans
+        for group in plan["groups"]
+        if str(group["id"]) in skipped_groups
+    )
+    expected_fluxed = assigned - skipped_spectra
+    if fluxed != expected_fluxed:
         print("\nFlux calibration incomplete")
         print(f"Science spectra assigned: {assigned}")
         print(f"Science spectra flux-calibrated: {fluxed}")
         return 1
-    print("\nFlux calibration complete")
+    print("\nFlux calibration complete for all groups with a safe standard")
     print(f"Sensitivity functions available: {sensfuncs}")
     print(f"Science spectra assigned: {assigned}")
     print(f"Science spectra flux-calibrated: {fluxed}")
+    if skipped_groups:
+        print(f"Science spectra skipped: {skipped_spectra}")
+        print(f"Review: {sensitivity_review_file}")
+        return 1
     return 0
 
 

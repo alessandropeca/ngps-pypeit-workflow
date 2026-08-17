@@ -66,6 +66,7 @@ def main() -> int:
 
     missing_science = []
     missing_standards = []
+    missing_fluxed_science = []
 
     total_fluxed = 0
     successfully_fluxed = 0
@@ -113,6 +114,13 @@ def main() -> int:
 
             elif "science" in frametype:
                 missing_science.append(item)
+        elif "science" in frametype:
+            fluxed_dir = science_dir.parent / "Fluxed"
+            fluxed_matches = find_spec1d(fluxed_dir, row["filename"])
+            if not fluxed_matches:
+                missing_fluxed_science.append((
+                    row["channel"], setup, row["target"], row["filename"],
+                ))
 
     print()
     print("MISSING STANDARD SPEC1D FILES")
@@ -142,6 +150,21 @@ def main() -> int:
                 f"{item[1]:20s}  "
                 f"{item[3]:20s}  "
                 f"{item[4]}"
+            )
+
+    print()
+    print("SCIENCE FILES NOT FLUX-CALIBRATED")
+    print("-" * 80)
+
+    if not missing_fluxed_science:
+        print("None")
+    else:
+        for item in missing_fluxed_science:
+            print(
+                f"{item[0]:2s}  "
+                f"{item[1]:20s}  "
+                f"{item[2]:20s}  "
+                f"{item[3]}"
             )
 
     print()
@@ -199,6 +222,11 @@ def main() -> int:
     )
 
     print(
+        f"Science files not flux-calibrated: "
+        f"{len(missing_fluxed_science)}"
+    )
+
+    print(
         f"Fluxed-directory files:  "
         f"{total_fluxed}"
     )
@@ -213,8 +241,8 @@ def main() -> int:
         f"{valid_uncertainty}"
     )
 
-    if valid_uncertainty != total_fluxed:
-        print("WARNING: Some fluxed files have no usable FLAM uncertainties.")
+    if valid_uncertainty != total_fluxed or missing_fluxed_science:
+        print("WARNING: Some science files do not have usable flux calibration.")
         return 1
 
     return 0
