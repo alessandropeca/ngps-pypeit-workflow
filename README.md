@@ -125,18 +125,30 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
 4. Flux-calibrate the 1D products.
 
-   1. Build `science_standard_inventory.csv` from the reduced frames.
-   2. Create or display `science_standard_associations.csv`. Each row is one
-      consecutive group of science exposures with one assigned standard. No
-      spectra are changed.
-   3. Create the selected sensitivity functions and flux-calibrate copies in
-      `Fluxed/`.
-   4. Check that the `Fluxed/` files contain calibrated `FLAM` values.
+   Build `science_standard_inventory.csv` from the reduced frames.
 
    ```bash
    python scripts/ngps_inventory_standards.py "$DATE"
+   ```
+
+   Create or display `science_standard_associations.csv`. Each row is one
+   consecutive group of science exposures with one assigned standard. No
+   spectra are changed.
+
+   ```bash
    python scripts/ngps_flux_calibrate.py "$DATE"
+   ```
+
+   Create the selected sensitivity functions and flux-calibrate copies in
+   `Fluxed/`.
+
+   ```bash
    python scripts/ngps_flux_calibrate.py "$DATE" --run
+   ```
+
+   Check that the `Fluxed/` files contain calibrated `FLAM` values.
+
+   ```bash
    python scripts/ngps_audit_flux.py "$DATE"
    ```
 
