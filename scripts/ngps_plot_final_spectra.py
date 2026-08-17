@@ -101,26 +101,39 @@ def display_limits(fluxes: list[np.ndarray]) -> tuple[float, float]:
 
 def display_spectrum(
     wave: np.ndarray, flux: np.ndarray, channel: str, no_ug_edges: bool,
+    manual_ranges: dict[str, tuple[float, float]],
 ) -> tuple[np.ndarray, np.ndarray, int]:
-    """Apply the optional fixed U/G display ranges without changing FITS data."""
-    if not no_ug_edges or channel not in {"u", "g"}:
-        return wave, flux, 0
-    if channel == "u":
+    """Apply optional wavelength display ranges without changing FITS data."""
+    if channel in manual_ranges:
+        minimum, maximum = manual_ranges[channel]
+        keep = (wave >= minimum) & (wave <= maximum)
+    elif no_ug_edges and channel == "u":
+        minimum, maximum = 3100.0, 4350.0
         keep = (wave >= 3100.0) & (wave <= 4350.0)
-    else:
+    elif no_ug_edges and channel == "g":
+        minimum, maximum = 4280.0, float(np.max(wave))
         keep = wave >= 4280.0
+    else:
+        return wave, flux, 0
+    if not np.any(keep):
+        raise ValueError(
+            f"{channel.upper()} display range contains no samples: "
+            f"{minimum:.0f}-{maximum:.0f} A"
+        )
     return wave[keep], flux[keep], int((~keep).sum())
 
 
 def save_plot(
     root: Path, target: str, configuration: str, paths: dict[str, Path], show: bool,
-    no_ug_edges: bool,
+    no_ug_edges: bool, manual_ranges: dict[str, tuple[float, float]],
 ) -> tuple[Path, Path]:
     """Save available channel coadds, using an empty panel for an unavailable channel."""
     spectra: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for channel, path in paths.items():
         wave, flux = read_spectrum(path)
-        wave, flux, removed = display_spectrum(wave, flux, channel, no_ug_edges)
+        wave, flux, removed = display_spectrum(
+            wave, flux, channel, no_ug_edges, manual_ranges,
+        )
         if removed:
             print(f"{channel.upper()} {target} {configuration}: omitted {removed} sample(s) outside the selected display range")
         spectra[channel] = wave, flux
@@ -200,9 +213,32 @@ def main() -> int:
         "--noUGedges", "--no-ug-edges", dest="no_ug_edges", action="store_true",
         help="Plot U from 3100 to 4350 A and G from 4280 A onward without changing FITS data.",
     )
+    parser.add_argument(
+        "--manual", action="store_true",
+        help="Use one or more manual wavelength display ranges supplied with --U, --G, --R, or --I.",
+    )
+    for channel in CHANNELS:
+        parser.add_argument(
+            f"--{channel.upper()}", dest=f"{channel}_range", nargs=2, type=float,
+            metavar=("MIN", "MAX"), help=f"Manual {channel.upper()} display range in Angstrom.",
+        )
     args = parser.parse_args()
     if args.all and args.configuration:
         parser.error("--configuration applies only with --target")
+    manual_ranges = {
+        channel: tuple(getattr(args, f"{channel}_range"))
+        for channel in CHANNELS
+        if getattr(args, f"{channel}_range") is not None
+    }
+    if args.manual and not manual_ranges:
+        parser.error("--manual requires at least one of --U, --G, --R, or --I")
+    if manual_ranges and not args.manual:
+        parser.error("Use --manual when supplying --U, --G, --R, or --I")
+    if args.manual and args.no_ug_edges:
+        parser.error("Choose either --manual or --noUGedges")
+    for channel, (minimum, maximum) in manual_ranges.items():
+        if minimum >= maximum:
+            parser.error(f"{channel.upper()} range must have MIN < MAX")
 
     root = Path(os.environ.get("NGPS_WORK_ROOT", Path.home() / "ngps_data" / "work")) / args.date
     if args.target:
@@ -210,7 +246,10 @@ def main() -> int:
             configuration, paths = choose_configuration(
                 completed_coadds(root, args.target), args.configuration
             )
-            pdf, png = save_plot(root, args.target, configuration, paths, show=True, no_ug_edges=args.no_ug_edges)
+            pdf, png = save_plot(
+                root, args.target, configuration, paths, show=True,
+                no_ug_edges=args.no_ug_edges, manual_ranges=manual_ranges,
+            )
         except ValueError as error:
             parser.error(str(error))
         print_saved_plot(args.target, configuration, paths, pdf, png)
@@ -225,7 +264,10 @@ def main() -> int:
     for target in targets:
         for configuration, paths in sorted(completed_coadds(root, target).items()):
             try:
-                pdf, png = save_plot(root, target, configuration, paths, show=False, no_ug_edges=args.no_ug_edges)
+                pdf, png = save_plot(
+                    root, target, configuration, paths, show=False,
+                    no_ug_edges=args.no_ug_edges, manual_ranges=manual_ranges,
+                )
             except ValueError as error:
                 print(f"Failed to plot {target} | configuration {configuration}: {error}")
                 failed += 1

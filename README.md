@@ -299,6 +299,13 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_plot_final_spectra.py "$DATE" --all --noUGedges
    ```
 
+   For custom display windows, use `--manual` and provide one or more channel
+   ranges in Å. This also changes only the plots.
+
+   ```bash
+   python scripts/ngps_plot_final_spectra.py "$DATE" --all --manual --U 3100 4350 --G 4280 5900 --R 5800 8050 --I 7500 10450
+   ```
+
 ## Additional notes
 
 Three slicer traces belong to one raw exposure. Obs numbers such as 0121, 0122,
