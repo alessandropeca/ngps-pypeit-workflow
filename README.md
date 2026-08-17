@@ -121,7 +121,7 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
    If a manual setup is rerun, flux-calibrate its new products before coadding.
 
-5. Flux-calibrate the 1D products. This is a safe four-step sequence; only
+4. Flux-calibrate the 1D products. Only
    the third command changes science products.
 
    ```bash
@@ -138,7 +138,7 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_audit_flux.py "$DATE"
    ```
 
-6. Find repeated observations by target name, then review and coadd them.
+5. Find repeated observations by target name, then review and coadd them.
 
    ```bash
    python scripts/ngps_interactive_coadd.py "$DATE" --list-groups
