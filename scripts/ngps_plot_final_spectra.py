@@ -105,7 +105,7 @@ def display_spectrum(
     """Optionally omit extreme wavelength-edge artifacts from a plot only."""
     if not reject_edge_outliers or len(flux) < 40:
         return wave, flux, 0
-    edge_size = max(5, int(np.ceil(len(flux) * 0.015)))
+    edge_size = max(5, int(np.ceil(len(flux) * 0.10)))
     interior = flux[edge_size:-edge_size]
     median = float(np.median(interior))
     mad = float(np.median(np.abs(interior - median)))
