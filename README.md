@@ -116,6 +116,10 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_manual_target_extractions.py "$DATE" --target 'MGC+04-48-002' --exposure 0121
    ```
 
+   Example extraction-review window:
+
+   ![Extraction review example](docs/images/extraction-review-example.png)
+
    Alternatively, omit `--auto` during reduction to open the dashboard for each
    source as soon as the reductions finish:
 
@@ -218,6 +222,10 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    together. The **Accept selection** button saves a review PDF, replaces that
    group's selection, and runs its PypeIt coadd. The **Cancel** button, or
    closing the window, writes no selection or coadd product.
+
+   Example coadd-review window:
+
+   ![Coadd review example](docs/images/coadd-review-example.png)
 
    To work with one target only, open its review window:
 
