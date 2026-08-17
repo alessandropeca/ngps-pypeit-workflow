@@ -98,11 +98,9 @@ def read_spectrum(path: Path) -> tuple[np.ndarray, np.ndarray]:
 
 
 def display_limits(fluxes: list[np.ndarray]) -> tuple[float, float]:
-    """Choose robust linear limits so isolated endpoint spikes do not hide the spectrum."""
+    """Include the full range of all valid flux samples on a linear axis."""
     values = np.concatenate(fluxes)
-    low, high = np.nanpercentile(values, (1.0, 99.0))
-    if not np.isfinite(low) or not np.isfinite(high) or low == high:
-        low, high = np.nanmin(values), np.nanmax(values)
+    low, high = np.nanmin(values), np.nanmax(values)
     padding = 0.08 * (high - low) if high > low else max(abs(high) * 0.1, 1.0)
     return low - padding, high + padding
 

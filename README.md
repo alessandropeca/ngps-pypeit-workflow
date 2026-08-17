@@ -269,7 +269,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
    Close the window when you are finished zooming or panning. The figure has one
    flux-versus-wavelength panel per channel. It does not merge U/G/R/I or alter
-   the FITS spectra. It saves a PDF and PNG in `$NIGHT/FinalQA/MGC_04-48-002/`, for example
+   the FITS spectra. Each y-axis includes every valid flux sample. It saves a PDF
+   and PNG in `$NIGHT/FinalQA/MGC_04-48-002/`, for example
    `~/ngps_data/work/20260623/FinalQA/MGC_04-48-002/MGC_04-48-002_UGRI_B_coadds.pdf`.
    If a target has more than one complete configuration, choose one explicitly:
 
