@@ -159,6 +159,11 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    plan, then run the single-line `--run` command above. To discard edits and
    create a new proposal, run `python scripts/ngps_flux_calibrate.py "$DATE" --reset-associations`.
 
+   If a selected standard fails, the run finds the nearest standard with a
+   successful sensitivity function and writes it as an `automatic fallback`.
+   It stops before flux calibration. Review the updated association file, run
+   the dry run, then run `--run` again.
+
 5. Find repeated observations by target name, then review and coadd them.
 
    ```bash

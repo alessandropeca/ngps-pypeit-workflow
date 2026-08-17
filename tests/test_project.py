@@ -1,10 +1,12 @@
 import csv
+import importlib.util
 import os
 from pathlib import Path
 import py_compile
 import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
 
 ROOT = Path(__file__).parents[1]
 
@@ -73,6 +75,7 @@ def test_flux_plan_groups_consecutive_exposures_and_allows_a_manual_standard():
         assert len(plan) == 1
         assert plan[0]["science_filenames"] == "ngps_0001.fits ngps_0002.fits"
         assert plan[0]["standard_filename"] == "ngps_0003.fits"
+        assert plan[0]["assignment_status"] == "automatic"
 
         plan[0]["standard_filename"] = "ngps_0000.fits"
         with associations.open("w", newline="") as handle:
@@ -83,3 +86,32 @@ def test_flux_plan_groups_consecutive_exposures_and_allows_a_manual_standard():
         assert result.returncode == 0, result.stdout + result.stderr
         assert "target_a [0001,0002] -> std_a" in result.stdout
         assert "manual" in result.stdout
+
+
+def test_flux_plan_proposes_a_reviewable_fallback_after_a_standard_failure():
+    source = ROOT / "scripts" / "ngps_flux_calibrate.py"
+    spec = importlib.util.spec_from_file_location("ngps_flux_calibrate", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    failed = {"filename": "hz44.fits", "target": "hz44", "mjd": 1.0, "sensfile": Path("failed.fits")}
+    fallback = {"filename": "wolf.fits", "target": "wolf", "mjd": 1.2, "sensfile": Path("fallback.fits")}
+    group = {
+        "id": "target__0001-0003", "midpoint": 1.1, "standard": failed,
+        "status": "automatic", "manual": False,
+    }
+    plan = {"standards": [failed, fallback], "groups": [group]}
+
+    def fake_ensure(_plan, standard, _force, attempted):
+        success = standard["filename"] == "wolf.fits"
+        attempted[Path(standard["sensfile"])] = success
+        return success
+
+    with patch.object(module, "ensure_sensfunc", side_effect=fake_ensure):
+        changed, unresolved = module.propose_fallbacks([plan], False, {Path("failed.fits"): False})
+
+    assert changed == 1
+    assert unresolved == []
+    assert group["standard"] is fallback
+    assert group["status"] == "automatic fallback"

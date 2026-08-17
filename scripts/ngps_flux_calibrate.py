@@ -8,6 +8,7 @@ import csv
 import os
 import shutil
 import subprocess
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -15,18 +16,31 @@ from pathlib import Path
 ASSOCIATION_FIELDS = (
     "channel", "setup", "group_id", "target", "science_filenames",
     "group_mid_mjd", "standard_filename", "standard_target",
-    "standard_mjd", "delta_minutes",
+    "standard_mjd", "delta_minutes", "assignment_status",
+)
+REQUIRED_ASSOCIATION_FIELDS = tuple(
+    field for field in ASSOCIATION_FIELDS if field != "assignment_status"
 )
 
 
 def run_command(command: list[str], cwd: Path) -> bool:
     """Run one PypeIt command and report whether it succeeded."""
     print("\n>>> " + " ".join(str(item) for item in command), flush=True)
-    result = subprocess.run(command, cwd=cwd)
+    try:
+        result = subprocess.run(command, cwd=cwd)
+    except OSError as error:
+        print(f"ERROR: could not start command: {error}")
+        return False
     if result.returncode == 0:
         return True
     print(f"ERROR: command failed with exit code {result.returncode}")
     return False
+
+
+def pypeit_command(name: str, *arguments: str) -> list[str]:
+    """Run a PypeIt entry point from the active Python environment."""
+    executable = Path(sys.executable).with_name(name)
+    return [str(executable) if executable.is_file() else name, *arguments]
 
 
 def find_spec1d(science_dir: Path, raw_filename: str) -> Path | None:
@@ -74,10 +88,11 @@ def read_associations(path: Path) -> dict[tuple[str, str, str], dict[str, str]]:
     """Read a reviewed association file keyed by channel, setup, and group."""
     with path.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    if not rows or set(ASSOCIATION_FIELDS) - set(rows[0]):
+    if not rows or set(REQUIRED_ASSOCIATION_FIELDS) - set(rows[0]):
         raise RuntimeError(f"{path} is missing required association columns")
     result: dict[tuple[str, str, str], dict[str, str]] = {}
     for row in rows:
+        row.setdefault("assignment_status", "")
         key = association_key(row["channel"], row["setup"], row["group_id"])
         if key in result:
             raise RuntimeError(f"duplicate association group: {row['group_id']}")
@@ -159,6 +174,7 @@ def collect_plans(root: Path, rows: list[dict[str, object]]) -> list[dict[str, o
                 "default": default,
                 "standard": default,
                 "manual": False,
+                "status": "automatic",
             })
         plans.append({
             "channel": channel,
@@ -191,6 +207,7 @@ def proposal_rows(plans: list[dict[str, object]]) -> list[dict[str, str]]:
                 "standard_target": str(standard["target"]),
                 "standard_mjd": f"{float(standard['mjd']):.8f}",
                 "delta_minutes": f"{abs(float(standard['mjd']) - midpoint) * 1440.0:.1f}",
+                "assignment_status": str(group["status"]),
             })
     return rows
 
@@ -219,7 +236,13 @@ def apply_reviewed_associations(
                     f"{str(plan['channel']).upper()} {plan['setup']}"
                 )
             group["standard"] = choices[choice]
-            group["manual"] = choice != str(group["default"]["filename"])
+            saved_status = reviewed[key].get("assignment_status", "")
+            if saved_status == "automatic fallback":
+                group["manual"] = False
+                group["status"] = saved_status
+            elif choice != str(group["default"]["filename"]):
+                group["manual"] = True
+                group["status"] = "manual"
 
 
 def print_associations(plans: list[dict[str, object]]) -> int:
@@ -233,7 +256,7 @@ def print_associations(plans: list[dict[str, object]]) -> int:
             standard = group["standard"]
             midpoint = float(group["midpoint"])
             minutes = abs(float(standard["mjd"]) - midpoint) * 1440.0
-            source = "manual" if group["manual"] else "automatic"
+            source = str(group["status"])
             print(
                 f"  {str(plan['channel']).upper()} {plan['setup']} {group['target']} "
                 f"[{exposures}] -> {standard['target']} ({minutes:.1f} min, {source})"
@@ -242,30 +265,75 @@ def print_associations(plans: list[dict[str, object]]) -> int:
     return count
 
 
-def build_sensfuncs(plans: list[dict[str, object]], force: bool) -> int:
-    """Build only the sensitivity functions selected by the reviewed plan."""
-    selected: dict[Path, tuple[dict[str, object], dict[str, object]]] = {}
+def ensure_sensfunc(
+    plan: dict[str, object], standard: dict[str, object], force: bool,
+    attempted: dict[Path, bool],
+) -> bool:
+    """Use or build one sensitivity function exactly once per command run."""
+    sensfile = Path(standard["sensfile"])
+    if sensfile in attempted:
+        return attempted[sensfile]
+    sensfile.parent.mkdir(parents=True, exist_ok=True)
+    if sensfile.exists() and not force:
+        print(f"Sensitivity function kept: {sensfile.name}")
+        attempted[sensfile] = True
+        return True
+    print(f"Building sensitivity function: {sensfile.name}")
+    success = run_command(
+        pypeit_command("pypeit_sensfunc", str(standard["spec1d"]), "-o", str(sensfile)),
+        Path(plan["setup_dir"]),
+    )
+    if not success:
+        print(f"WARNING: sensitivity function failed for {standard['target']}")
+    attempted[sensfile] = success
+    return success
+
+
+def build_selected_sensfuncs(
+    plans: list[dict[str, object]], force: bool,
+) -> dict[Path, bool]:
+    """Build the standards currently selected in the reviewed association plan."""
+    attempted: dict[Path, bool] = {}
     for plan in plans:
         for group in plan["groups"]:
-            standard = group["standard"]
-            selected[Path(standard["sensfile"])] = (plan, standard)
-
-    complete = 0
-    for sensfile, (plan, standard) in sorted(selected.items(), key=lambda item: str(item[0])):
-        sensfile.parent.mkdir(parents=True, exist_ok=True)
-        if sensfile.exists() and not force:
-            print(f"Sensitivity function kept: {sensfile.name}")
-            complete += 1
-            continue
-        print(f"Building sensitivity function: {sensfile.name}")
-        if run_command(["pypeit_sensfunc", str(standard["spec1d"]), "-o", str(sensfile)], Path(plan["setup_dir"])):
-            complete += 1
-        else:
-            print(f"WARNING: sensitivity function failed for {standard['target']}")
-    return complete
+            ensure_sensfunc(plan, group["standard"], force, attempted)
+    return attempted
 
 
-def flux_calibrate(plans: list[dict[str, object]], date: str, overwrite: bool) -> int:
+def propose_fallbacks(
+    plans: list[dict[str, object]], force: bool, attempted: dict[Path, bool],
+) -> tuple[int, list[str]]:
+    """Replace failed choices with the nearest standard that builds successfully."""
+    changed = 0
+    unresolved: list[str] = []
+    for plan in plans:
+        for group in plan["groups"]:
+            selected = group["standard"]
+            if attempted.get(Path(selected["sensfile"]), Path(selected["sensfile"]).exists()):
+                continue
+            midpoint = float(group["midpoint"])
+            candidates = sorted(
+                plan["standards"],
+                key=lambda standard: abs(float(standard["mjd"]) - midpoint),
+            )
+            replacement = None
+            for candidate in candidates:
+                if str(candidate["filename"]) == str(selected["filename"]):
+                    continue
+                if ensure_sensfunc(plan, candidate, force, attempted):
+                    replacement = candidate
+                    break
+            if replacement is None:
+                unresolved.append(str(group["id"]))
+                continue
+            group["standard"] = replacement
+            group["manual"] = False
+            group["status"] = "automatic fallback"
+            changed += 1
+    return changed, unresolved
+
+
+def flux_calibrate(plans: list[dict[str, object]], date: str) -> int:
     """Copy selected spectra, write flux files, and run PypeIt calibration."""
     total = 0
     for plan in plans:
@@ -280,8 +348,7 @@ def flux_calibrate(plans: list[dict[str, object]], date: str, overwrite: bool) -
                 source = Path(member["spec1d"])
                 destination = Path(plan["fluxed_dir"]) / source.name
                 Path(plan["fluxed_dir"]).mkdir(parents=True, exist_ok=True)
-                if not destination.exists() or overwrite:
-                    shutil.copy2(source, destination)
+                shutil.copy2(source, destination)
                 rows.append((destination, sensfile))
         if not rows:
             continue
@@ -297,7 +364,7 @@ def flux_calibrate(plans: list[dict[str, object]], date: str, overwrite: bool) -
                 handle.write(f"    {science_file} | {sensfile}\n")
             handle.write("flux end\n")
         print(f"Flux-calibrating {len(rows)} science spectrum/s: {plan['channel'].upper()} {plan['setup']}")
-        if run_command(["pypeit_flux_calib", str(flux_file)], Path(plan["setup_dir"])):
+        if run_command(pypeit_command("pypeit_flux_calib", str(flux_file)), Path(plan["setup_dir"])):
             total += len(rows)
     return total
 
@@ -307,7 +374,6 @@ def main() -> int:
     parser.add_argument("date", help="UT observing date in YYYYMMDD format")
     parser.add_argument("--run", action="store_true", help="Build sensitivity functions and flux-calibrate the reviewed plan")
     parser.add_argument("--force-sensfunc", action="store_true", help="Regenerate existing sensitivity functions")
-    parser.add_argument("--overwrite-fluxed", action="store_true", help="Replace existing Fluxed spectrum copies")
     parser.add_argument("--reset-associations", action="store_true", help="Write a new automatic association proposal during a dry run")
     args = parser.parse_args()
     if args.run and args.reset_associations:
@@ -353,8 +419,27 @@ def main() -> int:
         print(f"Then run: python scripts/ngps_flux_calibrate.py {args.date} --run")
         return 0
 
-    sensfuncs = build_sensfuncs(plans, args.force_sensfunc)
-    fluxed = flux_calibrate(plans, args.date, args.overwrite_fluxed)
+    attempted = build_selected_sensfuncs(plans, args.force_sensfunc)
+    fallbacks, unresolved = propose_fallbacks(plans, args.force_sensfunc, attempted)
+    if fallbacks:
+        write_associations(associations_file, proposal_rows(plans))
+        print("\nAutomatic fallback proposal written")
+        print(f"Review: {associations_file}")
+        print("No spectra were flux-calibrated. Run the dry run, then run --run again.")
+        return 0
+    if unresolved:
+        print("\nFlux calibration stopped. No usable fallback standard was found for:")
+        for identifier in unresolved:
+            print(f"  {identifier}")
+        return 1
+
+    sensfuncs = sum(attempted.values())
+    fluxed = flux_calibrate(plans, args.date)
+    if fluxed != assigned:
+        print("\nFlux calibration incomplete")
+        print(f"Science spectra assigned: {assigned}")
+        print(f"Science spectra flux-calibrated: {fluxed}")
+        return 1
     print("\nFlux calibration complete")
     print(f"Sensitivity functions available: {sensfuncs}")
     print(f"Science spectra assigned: {assigned}")
