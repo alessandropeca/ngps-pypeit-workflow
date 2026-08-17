@@ -253,6 +253,22 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --channel r --setup p200_ngps_r_B --exposure 0121 --exposure 0123
    ```
 
+6. Plot the four separate final coadds for one target. The figure has one
+   flux-versus-wavelength panel per channel. It does not merge U/G/R/I or alter
+   the FITS spectra.
+
+   ```bash
+   python scripts/ngps_plot_final_spectra.py "$DATE" --target 'MGC+04-48-002'
+   ```
+
+   This saves a PDF and PNG in `$NIGHT/FinalQA/MGC_04-48-002/`, for example
+   `~/ngps_data/work/20260623/FinalQA/MGC_04-48-002/MGC_04-48-002_UGRI_B_coadds.pdf`.
+   If a target has more than one complete configuration, choose one explicitly:
+
+   ```bash
+   python scripts/ngps_plot_final_spectra.py "$DATE" --target 'NGC4102' --configuration C
+   ```
+
 ## Additional notes
 
 Three slicer traces belong to one raw exposure. Obs numbers such as 0121, 0122,
