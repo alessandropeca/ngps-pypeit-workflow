@@ -177,7 +177,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 
    After reviewing `coadd_review.csv`, automatically write and run every
    reviewable coadd. This saves one automatic review PDF per coadd. Existing
-   coadd directories are kept unchanged.
+   coadd directories are kept unchanged. Review PDFs are saved in
+   `$NIGHT/CoaddQA/<target>/`.
 
    ```bash
    python scripts/ngps_interactive_coadd.py "$DATE" --all --auto
@@ -201,6 +202,12 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    ```bash
    python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002'
    ```
+
+   After `--all --auto`, use this same command to recheck one target. The
+   **Accept selection** button overwrites its review PDF. Choosing **Yes** at
+   both prompts replaces only that target, channel, and setup's coadd selection
+   and final coadded FITS file. Its review PDF is in
+   `$NIGHT/CoaddQA/<target>/`.
 
    To accept one target’s automatic selection without opening its window:
 

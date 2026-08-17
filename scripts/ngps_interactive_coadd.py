@@ -261,11 +261,15 @@ def write_coadd_review(path: Path, rows: list[dict[str, str]]) -> None:
 
 def reviewable_groups(
     groups: list[ObservationGroup], review: dict[tuple[str, str, str], dict[str, str]],
+    include_coadded: bool = False,
 ) -> list[ObservationGroup]:
-    """Return only repeat groups that have not been discarded in the review file."""
+    """Return repeat groups eligible for a new or replacement coadd."""
+    allowed = {"review"}
+    if include_coadded:
+        allowed.add("coadded")
     return [
         group for group in groups
-        if len(group.rows) >= 2 and review[review_key(group)]["status"].casefold() == "review"
+        if len(group.rows) >= 2 and review[review_key(group)]["status"].casefold() in allowed
     ]
 
 
@@ -463,9 +467,9 @@ def review(
 
 def write_coadd_input(out_dir: Path, target: str, channel: str, setup: str,
                       central_slit: int, candidates: list[Candidate]) -> tuple[Path, Path]:
-    """Write immutable review records and PypeIt's input file; never overwrite."""
+    """Write the selected coadd input and replace a prior selection if requested."""
     stem = f"{safe_name(target)}_{channel}_{safe_name(setup)}"
-    out_dir.mkdir(parents=True, exist_ok=False)
+    out_dir.mkdir(parents=True, exist_ok=True)
     coadd_file = out_dir / f"{stem}.coadd1d"
     output = out_dir / f"{stem}_coadd.fits"
     coadd_file.write_text(
@@ -548,7 +552,7 @@ def main() -> int:
         groups = find_observation_groups(
             rows, args.target, args.channel, args.setup, args.exposure
         )
-        groups = reviewable_groups(groups, coadd_review)
+        groups = reviewable_groups(groups, coadd_review, include_coadded=True)
     if not groups:
         parser.error("No matching reviewable repeat observations found")
     if args.summary:
@@ -592,13 +596,17 @@ def main() -> int:
             f"Accepted {exposure_count} of {len(group.rows)} repeat exposure(s), "
             f"containing {len(accepted)} slicer trace(s)."
         )
-        if not batch_auto and not ask_yes_no("Write this coadd selection and PypeIt input file?"):
-            print("No files were written for this group.")
-            continue
         out_dir = root / "Coadds" / (
             f"{safe_name(group.target)}_{group.channel}_{safe_name(group.setup)}"
         )
         if out_dir.exists():
+            write_question = "Replace this group's existing coadd selection and PypeIt input file?"
+        else:
+            write_question = "Write this coadd selection and PypeIt input file?"
+        if not batch_auto and not ask_yes_no(write_question):
+            print("No files were written for this group.")
+            continue
+        if batch_auto and out_dir.exists():
             print(f"Coadd output already exists. Keeping it unchanged: {out_dir}")
             continue
         coadd_file, output = write_coadd_input(

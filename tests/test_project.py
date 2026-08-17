@@ -147,3 +147,6 @@ def test_coadd_review_discards_singletons_and_keeps_fluxed_repeats():
     assert review[module.review_key(singleton)]["status"] == "discard"
     assert review[module.review_key(singleton)]["reason"] == "only one science exposure"
     assert module.reviewable_groups([singleton, repeated], review) == [repeated]
+    review[module.review_key(repeated)]["status"] = "coadded"
+    assert module.reviewable_groups([singleton, repeated], review) == []
+    assert module.reviewable_groups([singleton, repeated], review, include_coadded=True) == [repeated]
