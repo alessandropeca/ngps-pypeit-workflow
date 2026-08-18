@@ -83,34 +83,49 @@ def interactive_select(spec2d: Path, initial_fwhm: float, maximum: int) -> Revie
         slits = [(int(row["spat_id"]), np.asarray(row["left_init"]),
                   np.asarray(row["right_init"])) for row in slit_data]
 
-    finite = image[np.isfinite(image)]
+    # Rectify the display only.  NGPS slicers are tilted on the detector, so a
+    # source at a fixed slicer position can look slanted.  We remove the median
+    # slit-centre tilt for viewing, then convert each click back to raw detector
+    # coordinates before writing any PypeIt manual extraction value.
+    rows = np.arange(image.shape[0])
+    slit_centres = np.array([(left + right) / 2 for _, left, right in slits])
+    row_shift = np.nanmedian(slit_centres, axis=0)
+    row_shift -= row_shift[len(row_shift) // 2]
+    raw_columns = np.arange(image.shape[1])
+    display_image = np.full_like(image, np.nan, dtype=float)
+    for row, shift in enumerate(row_shift):
+        source = np.rint(raw_columns + shift).astype(int)
+        valid = (source >= 0) & (source < image.shape[1])
+        display_image[row, valid] = image[row, source[valid]]
+
+    finite = display_image[np.isfinite(display_image)]
     if finite.size == 0:
         raise RuntimeError("The sky-subtracted image has no finite pixels.")
     vmin, vmax = np.percentile(finite, (5, 99))
-    rows = np.arange(image.shape[0])
-
     figure, axis = plt.subplots(figsize=(13, 8))
     figure.subplots_adjust(bottom=0.22)
-    axis.imshow(image, origin="lower", aspect="auto", cmap="gray",
+    axis.imshow(display_image, origin="lower", aspect="auto", cmap="gray",
                 vmin=vmin, vmax=vmax, interpolation="nearest")
-    axis.set_xlabel("Spatial detector pixel")
+    axis.set_xlabel("Rectified spatial detector pixel")
     axis.set_ylabel("Spectral detector pixel")
     axis.set_title(
-        "Sky-subtracted 2D spectrum\n"
+        "Rectified sky-subtracted 2D spectrum\n"
+        "A fixed slicer position is vertical. "
         "Gold: PypeIt automatic traces. Accept them, or left-click a replacement position (max 3). "
         "Drag coloured marker: move it. Right-click: remove. "
         "FWHM slider applies to active marker."
     )
     for slit_id, left, right in slits:
-        axis.plot(left, rows, color="deepskyblue", lw=0.6, alpha=0.65)
-        axis.plot(right, rows, color="deepskyblue", lw=0.6, alpha=0.65)
-        axis.text(np.nanmedian((left + right) / 2), image.shape[0] - 25,
+        axis.plot(left - row_shift, rows, color="deepskyblue", lw=0.6, alpha=0.65)
+        axis.plot(right - row_shift, rows, color="deepskyblue", lw=0.6, alpha=0.65)
+        axis.text(np.nanmedian((left + right) / 2 - row_shift), image.shape[0] - 25,
                   f"SLIT{slit_id:04d}", color="deepskyblue", fontsize=8,
                   ha="center", va="top")
     for name, spatial, spectral in read_traces(spec1d_for(spec2d)):
-        axis.plot(spatial, spectral, color="gold", lw=0.8, alpha=0.9)
+        display_spatial = spatial - np.interp(spectral, rows, row_shift)
+        axis.plot(display_spatial, spectral, color="gold", lw=0.8, alpha=0.9)
         middle = len(spatial) // 2
-        axis.text(spatial[middle], spectral[middle], name, color="gold",
+        axis.text(display_spatial[middle], spectral[middle], name, color="gold",
                   fontsize=7, rotation=90, va="bottom")
 
     selections: list[Selection] = []
@@ -131,10 +146,11 @@ def interactive_select(spec2d: Path, initial_fwhm: float, maximum: int) -> Revie
         artists = []
         for index, item in enumerate(selections):
             colour = "tab:orange" if index == active else "tab:red"
-            marker = axis.plot(item.spatial, item.spectral, "o",
+            display_spatial = item.spatial - np.interp(item.spectral, rows, row_shift)
+            marker = axis.plot(display_spatial, item.spectral, "o",
                                color=colour, markersize=7)[0]
-            left = axis.axvline(item.spatial - item.fwhm / 2, color=colour, lw=0.9)
-            right = axis.axvline(item.spatial + item.fwhm / 2, color=colour, lw=0.9)
+            left = axis.axvline(display_spatial - item.fwhm / 2, color=colour, lw=0.9)
+            right = axis.axvline(display_spatial + item.fwhm / 2, color=colour, lw=0.9)
             artists.append((marker, left, right))
         figure.canvas.draw_idle()
 
@@ -142,7 +158,8 @@ def interactive_select(spec2d: Path, initial_fwhm: float, maximum: int) -> Revie
         if event.xdata is None or event.ydata is None:
             return None
         for index, item in enumerate(selections):
-            dx, dy = (event.xdata - item.spatial) / 20, (event.ydata - item.spectral) / 60
+            display_spatial = item.spatial - np.interp(item.spectral, rows, row_shift)
+            dx, dy = (event.xdata - display_spatial) / 20, (event.ydata - item.spectral) / 60
             if dx * dx + dy * dy < 1:
                 return index
         return None
@@ -166,7 +183,10 @@ def interactive_select(spec2d: Path, initial_fwhm: float, maximum: int) -> Revie
             slider.set_val(selections[index].fwhm)
             redraw()
         elif len(selections) < maximum:
-            selections.append(Selection(float(event.xdata), float(event.ydata), float(slider.val)))
+            row = int(np.clip(round(event.ydata), 0, len(rows) - 1))
+            selections.append(Selection(
+                float(event.xdata + row_shift[row]), float(event.ydata), float(slider.val)
+            ))
             active = len(selections) - 1
             redraw()
         else:
@@ -174,7 +194,8 @@ def interactive_select(spec2d: Path, initial_fwhm: float, maximum: int) -> Revie
 
     def on_motion(event) -> None:
         if dragging and active is not None and event.inaxes == axis and event.xdata is not None and event.ydata is not None:
-            selections[active].spatial = float(event.xdata)
+            row = int(np.clip(round(event.ydata), 0, len(rows) - 1))
+            selections[active].spatial = float(event.xdata + row_shift[row])
             selections[active].spectral = float(event.ydata)
             redraw()
 
