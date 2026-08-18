@@ -245,9 +245,17 @@ def interactive_select(spec2d: Path, initial_fwhm: float, maximum: int) -> Revie
     auto_axis = figure.add_axes((0.08, 0.035, 0.22, 0.05))
     manual_axis = figure.add_axes((0.39, 0.035, 0.24, 0.05))
     cancel_axis = figure.add_axes((0.72, 0.035, 0.16, 0.05))
-    Button(auto_axis, "Accept automatic (a)").on_clicked(accept_automatic)
-    Button(manual_axis, "Accept manual positions").on_clicked(accept_manual)
-    Button(cancel_axis, "Cancel (q)").on_clicked(cancel)
+    # Keep widget instances alive for the entire interactive session.  Without
+    # these references, Matplotlib can garbage-collect the buttons and their
+    # click callbacks stop responding.
+    buttons = [
+        Button(auto_axis, "Accept automatic (a)"),
+        Button(manual_axis, "Accept manual positions"),
+        Button(cancel_axis, "Cancel (q)"),
+    ]
+    buttons[0].on_clicked(accept_automatic)
+    buttons[1].on_clicked(accept_manual)
+    buttons[2].on_clicked(cancel)
     plt.show()
     return ReviewResult(decision["value"], selections)
 
