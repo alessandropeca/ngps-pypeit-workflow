@@ -310,11 +310,21 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    ```
 
    Close the window when you are finished zooming or panning. The figure has one
-   flux-versus-wavelength panel per channel. It does not merge U/G/R/I or alter
-   the FITS spectra. It uses validated telluric-corrected R/I products when they
-   exist, otherwise it uses the flux-calibrated coadd. Each y-axis includes every
-   valid flux sample. It saves a PDF and PNG in `$NIGHT/FinalQA/MGC_04-48-002/`, for example
+   flux-versus-wavelength panel per channel. The coloured curve is an
+   inverse-variance rebin of two adjacent valid pixels. The native pixels remain
+   visible in light grey. It does not merge U/G/R/I or alter the FITS spectra.
+   It uses validated telluric-corrected R/I products when they exist, otherwise it
+   uses the flux-calibrated coadd. Each y-axis includes every valid flux sample.
+   It saves a PDF and PNG in `$NIGHT/FinalQA/MGC_04-48-002/`, for example
    `~/ngps_data/work/20260623/FinalQA/MGC_04-48-002/MGC_04-48-002_UGRI_B_coadds.pdf`.
+
+   Use a different display-only bin size when needed. For example, use four
+   native pixels per coloured point:
+
+   ```bash
+   python scripts/ngps_plot_final_spectra.py "$DATE" --all --rebin 4
+   ```
+
    A channel without a completed flux-calibrated coadd is shown as an empty white
    panel. If a target has more than one configuration, choose one explicitly:
 

@@ -121,7 +121,7 @@ def completed_targets(root: Path) -> list[str]:
         })
 
 
-def read_spectrum(path: Path) -> tuple[np.ndarray, np.ndarray]:
+def read_spectrum(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Read valid flux-calibrated OneSpec samples from PypeIt's final coadd."""
     with fits.open(path, memmap=False) as hdul:
         data = hdul["SPECTRUM"].data
@@ -130,11 +130,32 @@ def read_spectrum(path: Path) -> tuple[np.ndarray, np.ndarray]:
             raise ValueError(f"Coadd is not flux calibrated: {path}")
         wave = np.asarray(data["wave"], dtype=float)
         flux = np.asarray(data["flux"], dtype=float)
+        ivar = np.asarray(data["ivar"], dtype=float)
         mask = np.asarray(data["mask"], dtype=bool)
-    good = mask & np.isfinite(wave) & np.isfinite(flux)
+    good = mask & np.isfinite(wave) & np.isfinite(flux) & np.isfinite(ivar) & (ivar > 0)
     if not np.any(good):
         raise ValueError(f"No valid samples in: {path}")
-    return wave[good], flux[good]
+    return wave[good], flux[good], ivar[good]
+
+
+def rebin_spectrum(
+    wave: np.ndarray, flux: np.ndarray, ivar: np.ndarray, samples_per_bin: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Inverse-variance rebin contiguous valid samples for display only."""
+    if samples_per_bin == 1:
+        return wave, flux
+    spacing = np.diff(wave)
+    typical_spacing = np.nanmedian(spacing[spacing > 0])
+    starts = np.r_[0, np.flatnonzero(spacing > 2.5 * typical_spacing) + 1, len(wave)]
+    rebinned_wave: list[float] = []
+    rebinned_flux: list[float] = []
+    for start, stop in zip(starts[:-1], starts[1:]):
+        for begin in range(start, stop, samples_per_bin):
+            end = min(begin + samples_per_bin, stop)
+            weight = ivar[begin:end]
+            rebinned_wave.append(float(np.average(wave[begin:end], weights=weight)))
+            rebinned_flux.append(float(np.average(flux[begin:end], weights=weight)))
+    return np.asarray(rebinned_wave), np.asarray(rebinned_flux)
 
 
 def display_limits(fluxes: list[np.ndarray]) -> tuple[float, float]:
@@ -146,9 +167,9 @@ def display_limits(fluxes: list[np.ndarray]) -> tuple[float, float]:
 
 
 def display_spectrum(
-    wave: np.ndarray, flux: np.ndarray, channel: str, no_ug_edges: bool,
+    wave: np.ndarray, flux: np.ndarray, ivar: np.ndarray, channel: str, no_ug_edges: bool,
     manual_ranges: dict[str, tuple[float, float]],
-) -> tuple[np.ndarray, np.ndarray, int]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     """Apply optional wavelength display ranges without changing FITS data."""
     if channel in manual_ranges:
         minimum, maximum = manual_ranges[channel]
@@ -160,29 +181,30 @@ def display_spectrum(
         minimum, maximum = 4280.0, float(np.max(wave))
         keep = wave >= 4280.0
     else:
-        return wave, flux, 0
+        return wave, flux, ivar, 0
     if not np.any(keep):
         raise ValueError(
             f"{channel.upper()} display range contains no samples: "
             f"{minimum:.0f}-{maximum:.0f} A"
         )
-    return wave[keep], flux[keep], int((~keep).sum())
+    return wave[keep], flux[keep], ivar[keep], int((~keep).sum())
 
 
 def save_plot(
     root: Path, target: str, configuration: str, paths: dict[str, Path], show: bool,
-    no_ug_edges: bool, manual_ranges: dict[str, tuple[float, float]],
+    no_ug_edges: bool, manual_ranges: dict[str, tuple[float, float]], rebin: int,
 ) -> tuple[Path, Path]:
     """Save available channel coadds, using an empty panel for an unavailable channel."""
-    spectra: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    spectra: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
     for channel, path in paths.items():
-        wave, flux = read_spectrum(path)
-        wave, flux, removed = display_spectrum(
-            wave, flux, channel, no_ug_edges, manual_ranges,
+        wave, flux, ivar = read_spectrum(path)
+        wave, flux, ivar, removed = display_spectrum(
+            wave, flux, ivar, channel, no_ug_edges, manual_ranges,
         )
         if removed:
             print(f"{channel.upper()} {target} {configuration}: omitted {removed} sample(s) outside the selected display range")
-        spectra[channel] = wave, flux
+        rebinned_wave, rebinned_flux = rebin_spectrum(wave, flux, ivar, rebin)
+        spectra[channel] = wave, flux, rebinned_wave, rebinned_flux
 
     figure, axes = plt.subplots(len(CHANNELS), 1, figsize=(10.0, 7.0))
     figure.subplots_adjust(left=0.12, right=0.98, bottom=0.10, top=0.90, hspace=0.24)
@@ -205,8 +227,9 @@ def save_plot(
                 ha="center", va="center", color="0.45",
             )
             continue
-        wave, flux = spectra[channel]
-        axis.plot(wave, flux, lw=0.8, color=COLOURS[channel])
+        wave, flux, rebinned_wave, rebinned_flux = spectra[channel]
+        axis.plot(wave, flux, lw=0.45, color="0.70", alpha=0.75, zorder=1)
+        axis.plot(rebinned_wave, rebinned_flux, lw=0.9, color=COLOURS[channel], zorder=2)
         axis.axhline(0, color="0.65", lw=0.7)
         axis.set_xlim(np.min(wave), np.max(wave))
         axis.set_ylim(*display_limits([flux]))
@@ -216,7 +239,7 @@ def save_plot(
         ha="center", va="center", rotation="vertical",
     )
     figure.suptitle(
-        f"{target} | final available U/G/R/I spectra | configuration {configuration}",
+        f"{target} | final available U/G/R/I spectra | configuration {configuration} | rebin {rebin}",
         fontsize=14,
     )
 
@@ -263,6 +286,10 @@ def main() -> int:
         "--manual", action="store_true",
         help="Use one or more manual wavelength display ranges supplied with --U, --G, --R, or --I.",
     )
+    parser.add_argument(
+        "--rebin", type=int, default=2, metavar="N",
+        help="Inverse-variance rebin N adjacent valid pixels for the coloured display curve. Default: 2.",
+    )
     for channel in CHANNELS:
         parser.add_argument(
             f"--{channel.upper()}", dest=f"{channel}_range", nargs=2, type=float,
@@ -282,6 +309,8 @@ def main() -> int:
         parser.error("Use --manual when supplying --U, --G, --R, or --I")
     if args.manual and args.no_ug_edges:
         parser.error("Choose either --manual or --noUGedges")
+    if args.rebin < 1:
+        parser.error("--rebin must be a positive integer")
     for channel, (minimum, maximum) in manual_ranges.items():
         if minimum >= maximum:
             parser.error(f"{channel.upper()} range must have MIN < MAX")
@@ -294,7 +323,7 @@ def main() -> int:
             )
             pdf, png = save_plot(
                 root, args.target, configuration, paths, show=True,
-                no_ug_edges=args.no_ug_edges, manual_ranges=manual_ranges,
+                no_ug_edges=args.no_ug_edges, manual_ranges=manual_ranges, rebin=args.rebin,
             )
         except ValueError as error:
             parser.error(str(error))
@@ -312,7 +341,7 @@ def main() -> int:
             try:
                 pdf, png = save_plot(
                     root, target, configuration, paths, show=False,
-                    no_ug_edges=args.no_ug_edges, manual_ranges=manual_ranges,
+                    no_ug_edges=args.no_ug_edges, manual_ranges=manual_ranges, rebin=args.rebin,
                 )
             except ValueError as error:
                 print(f"Failed to plot {target} | configuration {configuration}: {error}")
