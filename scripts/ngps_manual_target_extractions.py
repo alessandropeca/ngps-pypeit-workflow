@@ -121,56 +121,49 @@ def centre_for_slit(slit: tuple[int, np.ndarray, np.ndarray], traces: list[tuple
     return (left + right) / 2
 
 
-def aligned_image(frame: Frame, half_width: int = 38) -> tuple[np.ndarray, np.ndarray, list[Selection]]:
-    """Return an image aligned at the geometric centre of each slicer.
+def central_slicer_image(frame: Frame, half_width: int = 38) -> tuple[np.ndarray, np.ndarray, list[Selection]]:
+    """Return the central slicer, rectified about its geometric centre.
 
-    This deliberately does *not* recenter each slicer on PypeIt's detected
-    object.  The resulting view preserves a source's physical position within
-    the image slicer, while the automatic traces remain visible at their true
-    offsets from the slicer centres.
+    The dashboard displays only NGPS's central slicer.  A click is an offset
+    from its geometric centre.  The returned ``Selection`` objects still hold
+    the centres and PypeIt widths of all three slicers, allowing the accepted
+    position to be mapped to every slice during extraction.
     """
-    image, ivar, slits, traces = frame_arrays(frame)
+    image, ivar, slits, _ = frame_arrays(frame)
     rows = np.arange(image.shape[0])
     offsets = np.arange(-half_width, half_width + 1)
-    numerator = np.zeros((len(rows), len(offsets)))
-    weights = np.zeros_like(numerator)
-    slicer_centres: list[Selection] = []
     fwhms = automatic_fwhm_by_slit(frame)
-    for slit in slits:
+    ordered_slits = sorted(slits, key=lambda slit: float(np.nanmedian((slit[1] + slit[2]) / 2)))
+    slicer_centres = []
+    for slit in ordered_slits:
         centre = (slit[1] + slit[2]) / 2
         middle = len(rows) // 2
         slicer_centres.append(Selection(
             float(centre[middle]), float(rows[middle]), fwhms.get(slit[0], 4.0)
         ))
-        x = np.rint(centre[:, None] + offsets[None, :]).astype(int)
-        left, right = slit[1], slit[2]
-        # Exclude pixels beyond the curved slicer edges from the aligned view.
-        valid = ((x >= 0) & (x < image.shape[1])
-                 & (x >= left[:, None]) & (x <= right[:, None]))
-        values = np.full_like(numerator, np.nan, dtype=float)
-        value_weights = np.zeros_like(numerator)
-        yy = np.broadcast_to(rows[:, None], x.shape)
-        values[valid] = image[yy[valid], x[valid]]
-        local_ivar = ivar[yy[valid], x[valid]]
-        value_weights[valid] = np.where(np.isfinite(local_ivar) & (local_ivar > 0), local_ivar, 0.0)
-        valid_values = np.isfinite(values) & (value_weights > 0)
-        numerator[valid_values] += values[valid_values] * value_weights[valid_values]
-        weights[valid_values] += value_weights[valid_values]
-    combined = np.divide(numerator, weights, out=np.full_like(numerator, np.nan), where=weights > 0)
-    return combined, offsets, slicer_centres
+    _, left, right = ordered_slits[len(ordered_slits) // 2]
+    centre = (left + right) / 2
+    x = np.rint(centre[:, None] + offsets[None, :]).astype(int)
+    yy = np.broadcast_to(rows[:, None], x.shape)
+    clipped_x = np.clip(x, 0, image.shape[1] - 1)
+    valid = ((x >= 0) & (x < image.shape[1])
+             & (x >= left[:, None]) & (x <= right[:, None])
+             & np.isfinite(ivar[yy, clipped_x]))
+    result = np.full(x.shape, np.nan, dtype=float)
+    result[valid] = image[yy[valid], x[valid]]
+    return result, offsets, slicer_centres
 
 
 def automatic_trace_offsets(frame: Frame) -> list[tuple[str, np.ndarray, np.ndarray]]:
-    """Return automatic traces in geometric slicer-centre coordinates."""
+    """Return automatic traces from the central slicer in display coordinates."""
     image, _, slits, traces = frame_arrays(frame)
     rows = np.arange(image.shape[0])
+    slits = sorted(slits, key=lambda slit: float(np.nanmedian((slit[1] + slit[2]) / 2)))
+    identifier, left, right = slits[len(slits) // 2]
     result = []
-    for identifier, left, right in slits:
-        choices = [(name, spatial, spectral) for name, spatial, spectral in traces
-                   if slit_id(name) == identifier]
-        if not choices:
-            continue
-        name, spatial, spectral = choices[0]
+    choices = [(name, spatial, spectral) for name, spatial, spectral in traces
+               if slit_id(name) == identifier]
+    for name, spatial, spectral in choices:
         order = np.argsort(spectral)
         trace = np.interp(rows, spectral[order], spatial[order])
         result.append((name, trace - (left + right) / 2, rows))
@@ -202,7 +195,7 @@ def manual_quicklook_spectrum(
     frame: Frame, offset: float, fwhm: float
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Make a live, display-only 1D aperture sum at an aligned offset."""
-    image, offsets, _ = aligned_image(frame)
+    image, offsets, _ = central_slicer_image(frame)
     aperture = np.abs(offsets - offset) <= fwhm / 2
     if not np.any(aperture):
         return None
@@ -221,10 +214,10 @@ def manual_quicklook_spectrum(
 
 
 def display_fwhm(frame: Frame) -> float:
-    """One representative width for the aligned dashboard display only."""
-    _, _, selections = aligned_image(frame)
-    widths = [selection.fwhm for selection in selections if selection.fwhm > 0]
-    return float(np.median(widths)) if widths else 4.0
+    """Use the central slicer's automatic width in the dashboard."""
+    _, _, selections = central_slicer_image(frame)
+    value = selections[len(selections) // 2].fwhm if selections else 4.0
+    return float(value) if np.isfinite(value) and value > 0 else 4.0
 
 
 def display_quality_mask(flux: np.ndarray) -> np.ndarray:
@@ -252,7 +245,7 @@ def audit_path(root: Path, target: str, exposure: str) -> Path:
 
 
 def selections_for_offsets(frame: Frame, offsets: list[float]) -> list[Selection]:
-    _, _, base = aligned_image(frame)
+    _, _, base = central_slicer_image(frame)
     return [Selection(item.spatial + offset, item.spectral, item.fwhm) for offset in offsets for item in base]
 
 
@@ -297,20 +290,20 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             axis.text(.5, .5, "No reduced frame", ha="center", va="center", transform=axis.transAxes)
             axis.set_title(channel.upper())
             continue
-        image, offsets, _ = aligned_image(frame)
+        image, offsets, _ = central_slicer_image(frame)
         channel_fwhm[channel] = display_fwhm(frame)
         finite = image[np.isfinite(image)]
         limits = np.percentile(finite, (5, 99)) if finite.size else (-1, 1)
         axis.imshow(image, origin="lower", aspect="auto", cmap="viridis", vmin=limits[0], vmax=limits[1], extent=(offsets[0], offsets[-1], 0, image.shape[0] - 1))
         axis.set_box_aspect(1)
-        axis.axvline(0, color="0.85", lw=1.0, label="slicer centre")
+        axis.axvline(0, color="0.85", lw=1.0, label="central-slicer centre")
         for trace_index, (_, trace_offset, trace_rows) in enumerate(automatic_trace_offsets(frame)):
             axis.plot(
                 trace_offset, trace_rows, color="gold", lw=.85, alpha=.9,
                 label="PypeIt automatic trace" if trace_index == 0 else None,
             )
-        axis.set_title(f"{channel.upper()}: aligned three-slicer", fontsize=9)
-        axis.set_xlabel("Offset from slicer centre (pixels)", fontsize=8)
+        axis.set_title(f"{channel.upper()}: central slicer", fontsize=9)
+        axis.set_xlabel("Offset from central-slicer centre (pixels)", fontsize=8)
         if channel == "u":
             axis.set_ylabel("Spectral pixel", fontsize=8)
         axis.tick_params(labelsize=8)
@@ -319,8 +312,8 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         if np.isfinite(scale) and scale > 0:
             profile_axis.plot(offsets, profile / scale, color=COLOURS[channel], label=channel.upper())
     profile_axis.axvline(0, color="0.7", lw=.8)
-    profile_axis.set_title("Spatial profiles\none colour per channel", fontsize=9)
-    profile_axis.set_xlabel("Offset from slicer centre (pixels)", fontsize=8)
+    profile_axis.set_title("Central-slice spatial profiles\none colour per channel", fontsize=9)
+    profile_axis.set_xlabel("Offset from central-slicer centre (pixels)", fontsize=8)
     profile_axis.set_ylabel("Normalised profile", fontsize=8)
     profile_axis.tick_params(labelsize=8)
     profile_axis.legend(loc="best")
@@ -387,8 +380,8 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             selection_artists.append(profile_axis.axvspan(offset - width / 2, offset + width / 2, color=COLOURS[channel], alpha=.14))
             selection_artists.append(profile_axis.axvline(offset, color=COLOURS[channel], lw=.9, alpha=.9))
         profile_axis.set_title(
-            "Spatial profiles\nmanual apertures" if selected
-            else "Spatial profiles\none colour per channel"
+            "Central-slice profiles\nmanual apertures" if selected
+            else "Central-slice spatial profiles\none colour per channel"
         )
         redraw_spectra(selected if selected else None)
         figure.canvas.draw_idle()

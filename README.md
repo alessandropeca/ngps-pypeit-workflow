@@ -80,16 +80,17 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    ```
 
    These PDFs are derived science-review products. Each one has four
-   aligned U/G/R/I 2D panels, coloured spatial profiles, and a quick-look 1D
-   panel.
-   The aligned 2D panels are for checking the same source in the three slicers, they are not a science coadd.
+   central-slicer U/G/R/I 2D panels, coloured spatial profiles, and a quick-look 1D
+   panel. The central-slicer panels are for choosing the target position. A manual
+   choice is mapped to the corresponding position in all three slicers for extraction.
 
 3. To revise one already-reduced target whose automatic PDF does not look
    right, open the same dashboard interactively. This is a **single-target,
    single-exposure review command**.
    
-   The **Manual extraction** button enables a click in a channel
-   panel and links the position across U/G/R/I.
+   The **Manual extraction** button enables a click in a central-slicer channel
+   panel and links the position across U/G/R/I. The selected relative position
+   is then extracted in all three NGPS slicers.
 
    The **Adjust this channel only** button makes the next click move only the panel selected. The saved PDF is
    replaced with your marked version.
