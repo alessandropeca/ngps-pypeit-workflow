@@ -19,6 +19,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
+from matplotlib.colors import Normalize, SymLogNorm
 from matplotlib.gridspec import GridSpec
 from matplotlib.widgets import Button
 
@@ -249,6 +250,18 @@ def selections_for_offsets(frame: Frame, offsets: list[float]) -> list[Selection
     return [Selection(item.spatial + offset, item.spectral, item.fwhm) for offset in offsets for item in base]
 
 
+def remove_stale_fluxed_products(setup_dir: Path, exposure: str) -> int:
+    """Remove flux-calibrated copies invalidated by a new extraction."""
+    fluxed = setup_dir / "Fluxed"
+    if not fluxed.is_dir():
+        return 0
+    removed = 0
+    for product in fluxed.glob(f"spec1d_*_{exposure}-*.fits"):
+        product.unlink()
+        removed += 1
+    return removed
+
+
 def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame], interactive: bool) -> tuple[str, dict[str, float]]:
     """Save a dashboard.  In interactive mode return the chosen extraction decision."""
     # Fits a typical laptop display at Matplotlib's default 100 dpi while
@@ -268,6 +281,8 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         "manual": False,
         "channel_only": False,
         "focus_channel": None,
+        "contrast": 0,
+        "image_scale": "linear",
     }
 
     def add_final_mode_label(label: str) -> None:
@@ -283,6 +298,10 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             },
         )
 
+    image_artists: dict[str, object] = {}
+    image_data: dict[str, np.ndarray] = {}
+    image_limits: dict[str, tuple[float, float]] = {}
+
     for channel in CHANNELS:
         axis = axes[channel]
         frame = frames.get(channel)
@@ -294,7 +313,13 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         channel_fwhm[channel] = display_fwhm(frame)
         finite = image[np.isfinite(image)]
         limits = np.percentile(finite, (5, 99)) if finite.size else (-1, 1)
-        axis.imshow(image, origin="lower", aspect="auto", cmap="viridis", vmin=limits[0], vmax=limits[1], extent=(offsets[0], offsets[-1], 0, image.shape[0] - 1))
+        image_artists[channel] = axis.imshow(
+            image, origin="lower", aspect="auto", cmap="viridis",
+            vmin=limits[0], vmax=limits[1],
+            extent=(offsets[0], offsets[-1], 0, image.shape[0] - 1),
+        )
+        image_data[channel] = image
+        image_limits[channel] = (float(limits[0]), float(limits[1]))
         axis.set_box_aspect(1)
         axis.axvline(0, color="0.85", lw=1.0, label="central-slicer centre")
         for trace_index, (_, trace_offset, trace_rows) in enumerate(automatic_trace_offsets(frame)):
@@ -318,6 +343,26 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     profile_axis.tick_params(labelsize=8)
     profile_axis.legend(loc="best")
     spectrum_axis.set_xlabel("Wavelength (Å)")
+
+    def redraw_images() -> None:
+        """Apply one display-only contrast and signed-log choice to all panels."""
+        factor = 1.55 ** (-int(state["contrast"]))
+        for channel, artist in image_artists.items():
+            base_low, base_high = image_limits[channel]
+            centre = (base_low + base_high) / 2.0
+            half_range = max((base_high - base_low) * factor / 2.0, np.finfo(float).eps)
+            low, high = centre - half_range, centre + half_range
+            if state["image_scale"] == "log":
+                # The sky-subtracted frames contain negative residuals.  A
+                # symmetric logarithmic norm preserves them instead of hiding
+                # them, while still making faint positive structure visible.
+                data = image_data[channel]
+                finite = np.abs(data[np.isfinite(data)])
+                threshold = max((high - low) * .025, np.nanpercentile(finite, 15) if finite.size else 0.0, np.finfo(float).eps)
+                artist.set_norm(SymLogNorm(linthresh=threshold, vmin=low, vmax=high))
+            else:
+                artist.set_norm(Normalize(vmin=low, vmax=high))
+        figure.canvas.draw_idle()
 
     spectrum_lines: list[object] = []
 
@@ -399,6 +444,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
 
     def accept_auto(event) -> None:
         state["decision"] = "automatic"
+        print("Automatic extraction accepted. Closing review window and starting re-extraction...", flush=True)
         plt.close(figure)
 
     def begin_manual(event) -> None:
@@ -422,11 +468,28 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         redraw_spectra(selected if selected else None)
         figure.canvas.draw_idle()
 
+    def contrast_down(event) -> None:
+        state["contrast"] = max(-3, int(state["contrast"]) - 1)
+        redraw_images()
+
+    def contrast_up(event) -> None:
+        state["contrast"] = min(5, int(state["contrast"]) + 1)
+        redraw_images()
+
+    def use_linear(event) -> None:
+        state["image_scale"] = "linear"
+        redraw_images()
+
+    def use_log(event) -> None:
+        state["image_scale"] = "log"
+        redraw_images()
+
     def accept_manual(event) -> None:
         if not selected:
             print("Choose a position in a channel panel before accepting manual extraction.")
             return
         state["decision"] = "manual"
+        print("Manual extraction accepted. Closing review window and starting re-extraction...", flush=True)
         plt.close(figure)
 
     def cancel(event) -> None:
@@ -435,6 +498,17 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
 
     button_widgets: list[Button] = []
     if interactive:
+        image_button_specs = [
+            ("Contrast −", contrast_down, .482, .835),
+            ("Contrast +", contrast_up, .482, .905),
+            ("Linear", use_linear, .447, .835),
+            ("Log", use_log, .447, .905),
+        ]
+        for label, callback, bottom, left in image_button_specs:
+            button_axis = figure.add_axes((left, bottom, .065, .027))
+            button = Button(button_axis, label, color="#E8EEF6", hovercolor="#CEDAEC")
+            button.on_clicked(callback)
+            button_widgets.append(button)
         button_specs = [
             ("Accept automatic", accept_auto, "#D7F2DF", "#BCE8CA"),
             ("Manual extraction", begin_manual, "#D7E9FF", "#BCD8F5"),
@@ -444,7 +518,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             ("Cancel", cancel, "#FFD9D9", "#F2BFBF"),
         ]
         for index, (label, callback, colour, hover_colour) in enumerate(button_specs):
-            button_axis = figure.add_axes((.835, .16 + (.052 * (5 - index)), .135, .041))
+            button_axis = figure.add_axes((.835, .16 + (.048 * (5 - index)), .135, .037))
             button = Button(button_axis, label, color=colour, hovercolor=hover_colour)
             button.on_clicked(callback)
             button_widgets.append(button)
@@ -491,9 +565,11 @@ def rerun_selected_exposure(
     manual = offsets is not None
     exposure = next(iter(frames.values())).exposure
     mode = "manual" if manual else "automatic"
-    print(f"Re-extracting exposure {exposure} ({mode} mode).")
-    print("Only its spec1d/spec2d products will be replaced; fluxed files are unchanged.")
-    for channel, frame in sorted(frames.items()):
+    active_frames = [(channel, frame) for channel, frame in sorted(frames.items())
+                     if not manual or channel in offsets]
+    print(f"Re-extracting exposure {exposure} ({mode} mode): {len(active_frames)} channel(s).", flush=True)
+    print("The terminal will report progress for each channel. This may take a few minutes.", flush=True)
+    for index, (channel, frame) in enumerate(active_frames, start=1):
         if manual and channel not in offsets:
             print(f"  {channel.upper()}: automatic extraction retained")
             continue
@@ -515,7 +591,7 @@ def rerun_selected_exposure(
             f"rerun_{channel}_{source.parent.name}_{frame.exposure}.log"
         )
         log.parent.mkdir(parents=True, exist_ok=True)
-        print(f"  {channel.upper()}: running ...", end=" ", flush=True)
+        print(f"  [{index}/{len(active_frames)}] {channel.upper()}: reducing ...", end=" ", flush=True)
         with log.open("w") as stream:
             status = subprocess.run(
                 command, cwd=run_dir, stdout=stream, stderr=subprocess.STDOUT,
@@ -531,7 +607,10 @@ def rerun_selected_exposure(
         except (OSError, RuntimeError) as error:
             print(f"ERROR: reduction succeeded but products were not installed: {error}")
             return 1
-        print(f"done; replaced {count} derived product(s)")
+        stale_fluxed = remove_stale_fluxed_products(source.parent, frame.exposure)
+        suffix = f"; removed {stale_fluxed} stale Fluxed product(s)" if stale_fluxed else ""
+        print(f"done; replaced {count} derived product(s){suffix}", flush=True)
+    print("Re-extraction complete. Re-run flux calibration and coaddition before using final spectra.", flush=True)
     return 0
 
 

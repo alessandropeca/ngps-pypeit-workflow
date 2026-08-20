@@ -110,6 +110,10 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    The **Re-norm U/G/R/I** buttons set the quick-look y-range from one channel only. This is
    a display aid and does not change the detector counts or extracted spectrum.
 
+   **Contrast −** and **Contrast +** expand or tighten the colour range in all four 2D panels.
+   **Linear** restores the default view. **Log** uses a signed logarithmic display, so negative
+   sky-subtraction residuals remain visible. These buttons change only the display.
+
    For example, the reviewed PDF for `MGC+04-48-002`, exposure 0121, is saved as
    `~/ngps_data/work/20260623/ExtractionQA/MGC_04-48-002/ngps_extraction_review_0121.pdf`.
 
