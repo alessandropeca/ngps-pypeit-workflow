@@ -76,6 +76,23 @@ def test_manual_selection_can_be_linked_or_channel_only():
     assert selected == {"u": -3.0, "g": -3.0, "r": -3.0, "i": -3.0}
 
 
+def test_discover_frames_falls_back_to_a_target_run(tmp_path):
+    source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
+    spec = importlib.util.spec_from_file_location("ngps_manual_target_extractions_discovery", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    science = (tmp_path / "manual_setup_r" / "p200_ngps_r_C" / ".ngps_target_runs"
+               / "p200_ngps_r_C_manual_0106" / "Science")
+    science.mkdir(parents=True)
+    (science / "spec2d_ngps_260727_0106-target_NGPS_r_20260727T045817.156.fits").touch()
+    frames = module.discover_frames(tmp_path)
+    assert len(frames) == 1
+    assert frames[0].channel == "r"
+
+
 def test_target_run_frame_resolves_to_its_baseline_setup():
     source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
     spec = importlib.util.spec_from_file_location("ngps_manual_target_extractions", source)

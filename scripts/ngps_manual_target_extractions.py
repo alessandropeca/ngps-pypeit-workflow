@@ -59,14 +59,26 @@ def parse_frame(path: Path) -> Frame | None:
 
 
 def discover_frames(root: Path) -> list[Frame]:
-    result = []
+    """Find baseline reduced frames, falling back to saved target runs.
+
+    A previous one-exposure revision can be the only retained ``spec2d``
+    product for a setup.  It remains a valid starting point for another
+    review, provided a baseline Science copy for the same target/channel/
+    exposure does not exist.
+    """
+    result: list[Frame] = []
+    baseline_keys: set[tuple[str, str, str]] = set()
     for path in sorted(root.glob("manual_setup_*/*/Science/spec2d_*.fits")):
-        # The automatic dashboard reviews the original PypeIt products.  Manual
-        # copies are kept separate so a revision never silently becomes baseline.
-        if "_manual_" in path.parent.parent.name:
-            continue
         frame = parse_frame(path)
         if frame is not None:
+            result.append(frame)
+            baseline_keys.add((frame.target.casefold(), frame.channel, frame.exposure))
+    for path in sorted(root.glob("manual_setup_*/*/.ngps_target_runs/*/Science/spec2d_*.fits")):
+        frame = parse_frame(path)
+        if frame is None:
+            continue
+        key = (frame.target.casefold(), frame.channel, frame.exposure)
+        if key not in baseline_keys:
             result.append(frame)
     return result
 
