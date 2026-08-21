@@ -76,6 +76,22 @@ def test_manual_selection_can_be_linked_or_channel_only():
     assert selected == {"u": -3.0, "g": -3.0, "r": -3.0, "i": -3.0}
 
 
+def test_target_run_frame_resolves_to_its_baseline_setup():
+    source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
+    spec = importlib.util.spec_from_file_location("ngps_manual_target_extractions", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    setup = Path("/tmp/night/manual_setup_r/p200_ngps_r_C")
+    frame = module.Frame(
+        "r", "target", "0106",
+        setup / ".ngps_target_runs" / "p200_ngps_r_C_manual_0106" / "Science" / "spec2d_test.fits",
+    )
+    assert module.base_setup_dir(frame) == setup
+
+
 def test_interactive_coadd_tool_is_present():
     assert (ROOT / "scripts" / "ngps_interactive_coadd.py").is_file()
 

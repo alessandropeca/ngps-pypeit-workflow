@@ -310,6 +310,14 @@ def remove_stale_fluxed_products(setup_dir: Path, exposure: str) -> int:
     return removed
 
 
+def base_setup_dir(frame: Frame) -> Path:
+    """Return the baseline setup when a dashboard frame came from a target run."""
+    for parent in frame.spec2d.parents:
+        if parent.name == ".ngps_target_runs":
+            return parent.parent
+    return frame.spec2d.parent.parent
+
+
 def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame], interactive: bool) -> tuple[str, dict[str, float]]:
     """Save a dashboard.  In interactive mode return the chosen extraction decision."""
     # Fits a typical laptop display at Matplotlib's default 100 dpi while
@@ -634,7 +642,10 @@ def rerun_selected_exposure(
         if manual and channel not in offsets:
             print(f"  {channel.upper()}: automatic extraction retained")
             continue
-        source = next(iter(sorted(frame.spec2d.parent.parent.glob("*.pypeit"))), None)
+        setup_dir = base_setup_dir(frame)
+        source = setup_dir / f"{setup_dir.name}.pypeit"
+        if not source.is_file():
+            source = next(iter(sorted(setup_dir.glob("*.pypeit"))), None)
         if source is None:
             print(f"WARNING: no PypeIt file for {frame.spec2d}")
             continue
@@ -665,11 +676,11 @@ def rerun_selected_exposure(
                 print(f"    {line}")
             return status
         try:
-            count = replace_target_products(run_dir, source.parent, frame.exposure)
+            count = replace_target_products(run_dir, setup_dir, frame.exposure)
         except (OSError, RuntimeError) as error:
             print(f"ERROR: reduction succeeded but products were not installed: {error}")
             return 1
-        stale_fluxed = remove_stale_fluxed_products(source.parent, frame.exposure)
+        stale_fluxed = remove_stale_fluxed_products(setup_dir, frame.exposure)
         suffix = f"; removed {stale_fluxed} stale Fluxed product(s)" if stale_fluxed else ""
         print(f"done; replaced {count} derived product(s){suffix}", flush=True)
     print("Re-extraction complete. Re-run flux calibration and coaddition before using final spectra.", flush=True)
