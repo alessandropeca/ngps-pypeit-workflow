@@ -661,8 +661,10 @@ def main() -> int:
                 print(f"  {candidate_label(item):23s}  {item.obj_id}")
         return 0
 
-    selected_groups = groups if args.all else choose_groups(groups)
-    batch_auto = args.all and args.auto
+    # A filtered --target --auto run is intentionally non-interactive.  This
+    # lets a user safely refresh one target after a revised extraction.
+    selected_groups = groups if args.all or args.auto else choose_groups(groups)
+    batch_auto = args.auto
     completed = 0
     run_report: list[dict[str, str]] = []
     failures = 0
