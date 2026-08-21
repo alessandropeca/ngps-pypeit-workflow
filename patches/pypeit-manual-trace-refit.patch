@@ -41,12 +41,12 @@ index 6fd121f6a..2a33805d9 100644
 +                        image, xinit_hand, ncoeff, bpm=np.logical_not(inmask),
 +                        maxshift=maxshift, niter=numiterfit,
 +                        trace_bpm=np.logical_not(hand_fit_mask), fwhm=manual_fwhm,
-+                        maxdev=maxdev, idx=[thisobj.NAME])[0]
++                        maxdev=maxdev, idx=['manual'])[0]
 +                    xfit_hand = fit_trace(
 +                        image, xfit_hand, ncoeff, bpm=np.logical_not(inmask),
 +                        maxshift=maxshift, niter=numiterfit,
 +                        trace_bpm=np.logical_not(hand_fit_mask), fwhm=manual_fwhm,
-+                        maxdev=maxdev, weighting='gaussian', idx=[thisobj.NAME])[0]
++                        maxdev=maxdev, weighting='gaussian', idx=['manual'])[0]
 +                    if not np.all(np.isfinite(xfit_hand)):
 +                        raise PypeItError('manual trace fit returned non-finite positions')
 +                    thisobj.TRACE_SPAT = xfit_hand[:, 0]
