@@ -37,6 +37,7 @@ git -C "$SOFTWARE_ROOT/ngps_pipeline" checkout 55fa9491eb1683769006118c46b26963b
 
 python -m pip install -e "$SOFTWARE_ROOT/PypeIt"
 python -m pip install -e "$SOFTWARE_ROOT/ngps_pipeline"
+python tools/apply_pypeit_manual_refit_patch.py "$SOFTWARE_ROOT/PypeIt"
 python tools/verify_environment.py
 ```
 
@@ -88,12 +89,14 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    right, open the same dashboard interactively. This is a **single-target,
    single-exposure review command**.
    
-   The **Manual extraction** button enables a click in a central-slicer channel
-   panel and links the position across U/G/R/I. The selected relative position
-   is then extracted in all three NGPS slicers.
+   The **Manual extraction + refit** button enables a click in a central-slicer
+   channel panel and links the position across U/G/R/I. The selected relative
+   position is mapped into all three slicers and each slicer is traced again
+   from that position. The cyan curve previews the new central-slicer trace.
 
-   The **Adjust this channel only** button makes the next click move only the panel selected. The saved PDF is
-   replaced with your marked version.
+   The **Adjust this channel only** button makes the next click refit only the
+   selected channel. The other channels retain their existing products. The
+   saved PDF is replaced with your marked version.
    Manual positions inherit PypeIt's measured FWHM separately for every
    channel/slicer. Therefore, you can change pixel position but not extraction width.
 

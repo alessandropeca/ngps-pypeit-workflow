@@ -36,6 +36,46 @@ def test_interactive_extraction_tool_is_present():
     assert (ROOT / "scripts" / "ngps_manual_target_extractions.py").is_file()
 
 
+def test_manual_trace_refit_patch_and_target_config():
+    source = ROOT / "scripts" / "ngps_interactive_extract.py"
+    spec = importlib.util.spec_from_file_location("ngps_interactive_extract", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    patch = ROOT / "patches" / "pypeit-manual-trace-refit.patch"
+    assert patch.is_file()
+    assert "manual_refit_trace" in patch.read_text()
+
+    with tempfile.TemporaryDirectory() as temporary:
+        destination = Path(temporary) / "target.pypeit"
+        destination.write_text("[rdx]\nsetup read\nsetup end\n")
+        module.enable_manual_trace_refit(destination)
+        text = destination.read_text()
+
+    assert "manual_refit_trace = True" in text
+    assert "trace_maxshift = 3.0" in text
+
+
+def test_manual_selection_can_be_linked_or_channel_only():
+    source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
+    spec = importlib.util.spec_from_file_location("ngps_manual_target_extractions", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    frames = {channel: object() for channel in ("u", "g", "r", "i")}
+    selected = {"r": -1.0}
+
+    module.apply_manual_selection(selected, frames, "g", 2.5, True)
+    assert selected == {"r": -1.0, "g": 2.5}
+
+    module.apply_manual_selection(selected, frames, "i", -3.0, False)
+    assert selected == {"u": -3.0, "g": -3.0, "r": -3.0, "i": -3.0}
+
+
 def test_interactive_coadd_tool_is_present():
     assert (ROOT / "scripts" / "ngps_interactive_coadd.py").is_file()
 

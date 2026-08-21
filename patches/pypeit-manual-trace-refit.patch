@@ -1,0 +1,110 @@
+diff --git a/pypeit/core/findobj_skymask.py b/pypeit/core/findobj_skymask.py
+index 6fd121f6a..2a33805d9 100644
+--- a/pypeit/core/findobj_skymask.py
++++ b/pypeit/core/findobj_skymask.py
+@@ -1712,6 +1712,7 @@ def objs_in_slit(image, ivar, thismask, slit_left, slit_righ,
+                  inmask=None, fwhm=3.0,
+                  sigclip_smash=5.0, use_user_fwhm=False, boxcar_rad=7., maxshift=1.0,
+                  maxdev=2.0, numiterfit=9, spec_min_max=None, hand_extract_dict=None, std_trace=None,
++                 refit_hand_trace=False,
+                  ncoeff=5, nperslit=None, snr_thresh=10.0, trim_edg=(5,5),
+                  extract_maskwidth=4.0, specobj_dict=None, find_min_max=None,
+                  show_peaks=False, show_fits=False, show_trace=False,
+@@ -1743,7 +1744,8 @@ def objs_in_slit(image, ivar, thismask, slit_left, slit_righ,
+           as a function of wavelength.  For manual apertures, use either the
+           form of the brightest object on the slit, the trace of a standard star
+           (see ``std_trace``), or the left edge trace to set the trace for the
+-          object.  Finally, remove automatically identified objects that overlap
++          object unless ``refit_hand_trace`` is True, in which case fit the
++          manual trace directly from the selected position.  Finally, remove automatically identified objects that overlap
+           with manually defined extraction apertures.
+ 
+     At the end of this function, the list of objects is ready for extraction.
+@@ -2204,10 +2206,36 @@ def objs_in_slit(image, ivar, thismask, slit_left, slit_righ,
+                                           grid=False)[0]
+             thisobj.smash_peakflux = np.interp(thisobj.SPAT_FRACPOS*nsamp,np.arange(nsamp), flux_smash_smth) # interpolate from fluxconv
+             thisobj.smash_snr = np.interp(thisobj.SPAT_FRACPOS*nsamp,np.arange(nsamp), snr_smash_smth) # interpolate from fluxconv
+-            # assign the trace
+-            spat_0 = np.interp(thisobj.hand_extract_spec, spec_vec, trace_model)
+-            shift = thisobj.hand_extract_spat - spat_0
+-            thisobj.TRACE_SPAT = trace_model + shift
++            # Assign the trace.  The default preserves the historical manual
++            # behaviour.  The opt-in branch follows the selected source itself.
++            if refit_hand_trace:
++                manual_fwhm = hand_extract_fwhm[iobj] if hand_extract_fwhm[iobj] is not None else fwhm
++                xinit_hand = np.full((nspec, 1), thisobj.hand_extract_spat, dtype=float)
++                hand_fit_mask = np.outer(
++                    (spec_vec >= spec_min_max_out[0]) & (spec_vec <= spec_min_max_out[1]),
++                    np.ones(1, dtype=bool))
++                try:
++                    xfit_hand = fit_trace(
++                        image, xinit_hand, ncoeff, bpm=np.logical_not(inmask),
++                        maxshift=maxshift, niter=numiterfit,
++                        trace_bpm=np.logical_not(hand_fit_mask), fwhm=manual_fwhm,
++                        maxdev=maxdev, idx=[thisobj.NAME])[0]
++                    xfit_hand = fit_trace(
++                        image, xfit_hand, ncoeff, bpm=np.logical_not(inmask),
++                        maxshift=maxshift, niter=numiterfit,
++                        trace_bpm=np.logical_not(hand_fit_mask), fwhm=manual_fwhm,
++                        maxdev=maxdev, weighting='gaussian', idx=[thisobj.NAME])[0]
++                    if not np.all(np.isfinite(xfit_hand)):
++                        raise PypeItError('manual trace fit returned non-finite positions')
++                    thisobj.TRACE_SPAT = xfit_hand[:, 0]
++                    log.info(f'Refitted manual trace for aperture at spatial pixel {thisobj.hand_extract_spat:.2f}')
++                except (PypeItError, ValueError, RuntimeError) as error:
++                    log.warning(f'Manual trace refit failed ({error}); using shifted trace model')
++                    spat_0 = np.interp(thisobj.hand_extract_spec, spec_vec, trace_model)
++                    thisobj.TRACE_SPAT = trace_model + (thisobj.hand_extract_spat - spat_0)
++            else:
++                spat_0 = np.interp(thisobj.hand_extract_spec, spec_vec, trace_model)
++                thisobj.TRACE_SPAT = trace_model + (thisobj.hand_extract_spat - spat_0)
+             thisobj.trace_spec = spec_vec
+             thisobj.SPAT_PIXPOS = thisobj.TRACE_SPAT[specmid]
+             thisobj.SPAT_PIXPOS_ID = int(np.rint(thisobj.SPAT_PIXPOS))
+diff --git a/pypeit/find_objects.py b/pypeit/find_objects.py
+index 5f1097607..5a7c3a8b8 100644
+--- a/pypeit/find_objects.py
++++ b/pypeit/find_objects.py
+@@ -832,6 +832,7 @@ class MultiSlitFindObjects(FindObjects):
+                                 fwhm=self.par['reduce']['findobj']['find_fwhm'],
+                                 use_user_fwhm=self.par['reduce']['extraction']['use_user_fwhm'],
+                                 boxcar_rad=self.par['reduce']['extraction']['boxcar_radius'] / self.get_platescale(),  #pixels
++                                refit_hand_trace=self.par['reduce']['findobj']['manual_refit_trace'],
+                                 maxshift=self.par['reduce']['findobj']['trace_maxshift'],
+                                 maxdev=self.par['reduce']['findobj']['trace_maxdev'],
+                                 numiterfit=self.par['reduce']['findobj']['find_numiterfit'],
+diff --git a/pypeit/par/pypeitpar.py b/pypeit/par/pypeitpar.py
+index ac2bb5375..0163ea981 100644
+--- a/pypeit/par/pypeitpar.py
++++ b/pypeit/par/pypeitpar.py
+@@ -4316,7 +4316,8 @@ class FindObjPar(ParSet):
+                  find_fwhm=None, ech_find_max_snr=None, ech_find_min_snr=None, find_numiterfit=None,
+                  ech_find_nabove_min_snr=None, skip_second_find=None, skip_final_global=None,
+                  skip_skysub=None, find_negative=None, find_min_max=None, trace_min_max=None,
+-                 std_spec1d=None, use_std_trace=None, fof_link = None):
++                 std_spec1d=None, use_std_trace=None, fof_link = None,
++                 manual_refit_trace=None):
+         # Grab the parameter names and values from the function
+         # arguments
+         args, _, _, values = inspect.getargvalues(inspect.currentframe())
+@@ -4380,6 +4381,10 @@ class FindObjPar(ParSet):
+         descr['trace_maxshift'] = 'Maximum shift allowed between the input and recalculated centroid in trace fitting.  This parameter may be increased to ' \
+                                  'allow the fiter to follow curved traces (*e.g.*, for wide spectral ranges at high airmass).'
+ 
++        defaults['manual_refit_trace'] = False
++        dtypes['manual_refit_trace'] = bool
++        descr['manual_refit_trace'] = 'If True, fit a wavelength-dependent trace from each manual aperture instead of shifting an existing trace model.'
++
+         defaults['trace_min_max'] = None
+         dtypes['trace_min_max'] = list
+         descr['trace_min_max'] = 'It defines the minimum and maximum pixel in the spectral direction with useable data for this slit/order. ' \
+@@ -4492,7 +4497,8 @@ class FindObjPar(ParSet):
+                    'trace_maxdev', 'find_numiterfit', 'find_fwhm', 'ech_find_max_snr',
+                    'ech_find_min_snr', 'ech_find_nabove_min_snr', 'skip_second_find',
+                    'skip_final_global', 'skip_skysub', 'find_negative', 'find_min_max',
+-                   'trace_min_max', 'std_spec1d', 'use_std_trace', 'fof_link']
++                   'trace_min_max', 'std_spec1d', 'use_std_trace', 'fof_link',
++                   'manual_refit_trace']
+ 
+         badkeys = np.array([pk not in parkeys for pk in k])
+         if np.any(badkeys):

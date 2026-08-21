@@ -22,6 +22,7 @@ from astropy.io import fits
 from matplotlib.colors import Normalize, SymLogNorm
 from matplotlib.gridspec import GridSpec
 from matplotlib.widgets import Button
+from pypeit.core.trace import fit_trace
 
 from ngps_interactive_extract import (
     Selection,
@@ -193,14 +194,22 @@ def quicklook_spectrum(frame: Frame) -> tuple[np.ndarray, np.ndarray] | None:
 
 
 def manual_quicklook_spectrum(
-    frame: Frame, offset: float, fwhm: float
+    frame: Frame, offset: float, fwhm: float, trace_offset: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Make a live, display-only 1D aperture sum at an aligned offset."""
     image, offsets, _ = central_slicer_image(frame)
-    aperture = np.abs(offsets - offset) <= fwhm / 2
-    if not np.any(aperture):
+    if trace_offset is None:
+        trace_offset = np.full(image.shape[0], offset, dtype=float)
+    pixels = np.rint(np.asarray(trace_offset)[:, None] + len(offsets) // 2).astype(int)
+    half_width = max(1, int(np.ceil(fwhm / 2)))
+    pixels = pixels + np.arange(-half_width, half_width + 1)[None, :]
+    rows = np.broadcast_to(np.arange(image.shape[0])[:, None], pixels.shape)
+    valid = (pixels >= 0) & (pixels < image.shape[1])
+    if not np.any(valid):
         return None
-    flux = np.nansum(image[:, aperture], axis=1)
+    values = np.full(pixels.shape, np.nan, dtype=float)
+    values[valid] = image[rows[valid], pixels[valid]]
+    flux = np.nansum(values, axis=1)
     reference = quicklook_spectrum(frame)
     if reference is None:
         return None
@@ -212,6 +221,34 @@ def manual_quicklook_spectrum(
             wave,
         )
     return wave, flux
+
+
+def refit_central_trace(frame: Frame, offset: float, fwhm: float) -> np.ndarray | None:
+    """Fit a trial trace on the displayed central slicer from one manual click."""
+    image, _, slits, _ = frame_arrays(frame)
+    rows = np.arange(image.shape[0])
+    ordered = sorted(slits, key=lambda slit: float(np.nanmedian((slit[1] + slit[2]) / 2)))
+    _, left, right = ordered[len(ordered) // 2]
+    centre = (left + right) / 2
+    initial = (centre + offset)[:, None]
+    spatial = np.arange(image.shape[1])[None, :]
+    slit_mask = (spatial >= left[:, None]) & (spatial <= right[:, None])
+    try:
+        fitted = fit_trace(
+            image, initial, 5, bpm=np.logical_not(slit_mask), maxshift=3.0,
+            niter=9, fwhm=fwhm, maxdev=2.0, idx=["manual"],
+        )[0]
+        fitted = fit_trace(
+            image, fitted, 5, bpm=np.logical_not(slit_mask), maxshift=3.0,
+            niter=9, fwhm=fwhm, maxdev=2.0, weighting="gaussian", idx=["manual"],
+        )[0]
+        trace = fitted[:, 0] - centre
+        if not np.all(np.isfinite(trace)):
+            raise ValueError("non-finite trace")
+        return trace
+    except (RuntimeError, ValueError) as error:
+        print(f"WARNING: preview trace fit failed for {frame.channel.upper()}: {error}. The saved reduction will use PypeIt's fallback if needed.")
+        return None
 
 
 def display_fwhm(frame: Frame) -> float:
@@ -248,6 +285,17 @@ def audit_path(root: Path, target: str, exposure: str) -> Path:
 def selections_for_offsets(frame: Frame, offsets: list[float]) -> list[Selection]:
     _, _, base = central_slicer_image(frame)
     return [Selection(item.spatial + offset, item.spectral, item.fwhm) for offset in offsets for item in base]
+
+
+def apply_manual_selection(
+    selected: dict[str, float], frames: dict[str, Frame], channel: str, offset: float,
+    channel_only: bool,
+) -> None:
+    """Apply a linked U/G/R/I selection or a one-channel-only selection."""
+    if channel_only:
+        selected[channel] = offset
+    else:
+        selected.update({name: offset for name in frames})
 
 
 def remove_stale_fluxed_products(setup_dir: Path, exposure: str) -> int:
@@ -366,7 +414,10 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
 
     spectrum_lines: list[object] = []
 
-    def redraw_spectra(manual_offsets: dict[str, float] | None = None) -> None:
+    def redraw_spectra(
+        manual_offsets: dict[str, float] | None = None,
+        manual_traces: dict[str, np.ndarray] | None = None,
+    ) -> None:
         for line in spectrum_lines:
             line.remove()
         spectrum_lines.clear()
@@ -376,7 +427,8 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             if frame is None:
                 continue
             spectrum = (manual_quicklook_spectrum(
-                            frame, manual_offsets[channel], channel_fwhm[channel]
+                            frame, manual_offsets[channel], channel_fwhm[channel],
+                            manual_traces.get(channel) if manual_traces else None,
                         )
                         if manual_offsets is not None and channel in manual_offsets
                         else quicklook_spectrum(frame))
@@ -413,13 +465,23 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     redraw_spectra()
 
     selection_artists: list[object] = []
+    manual_traces: dict[str, np.ndarray] = {}
+
     def redraw_selections() -> None:
         for artist in selection_artists:
             artist.remove()
         selection_artists.clear()
+        manual_traces.clear()
         for channel, offset in selected.items():
             axis = axes[channel]
             width = channel_fwhm[channel]
+            trial_trace = refit_central_trace(frames[channel], offset, width)
+            if trial_trace is not None:
+                manual_traces[channel] = trial_trace
+                selection_artists.append(axis.plot(
+                    trial_trace, np.arange(len(trial_trace)), color="#52D6E8", lw=1.2,
+                    label="manual refit preview",
+                )[0])
             selection_artists.append(axis.axvspan(offset - width / 2, offset + width / 2, color="tab:red", alpha=.24))
             selection_artists.append(axis.axvline(offset, color="tab:red", lw=.9))
             selection_artists.append(profile_axis.axvspan(offset - width / 2, offset + width / 2, color=COLOURS[channel], alpha=.14))
@@ -428,18 +490,16 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             "Central-slice profiles\nmanual apertures" if selected
             else "Central-slice spatial profiles\none colour per channel"
         )
-        redraw_spectra(selected if selected else None)
+        redraw_spectra(selected if selected else None, manual_traces if selected else None)
         figure.canvas.draw_idle()
 
     def click(event) -> None:
         if not state["manual"] or event.inaxes not in axes.values() or event.xdata is None:
             return
         channel = next(name for name, axis in axes.items() if axis is event.inaxes)
-        if state["channel_only"]:
-            selected[channel] = float(event.xdata)
-        else:
-            # Default: one linked slicer-relative position across all channels.
-            selected.update({name: float(event.xdata) for name in frames})
+        apply_manual_selection(
+            selected, frames, channel, float(event.xdata), state["channel_only"],
+        )
         redraw_selections()
 
     def accept_auto(event) -> None:
@@ -450,11 +510,12 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     def begin_manual(event) -> None:
         state["manual"] = True
         state["channel_only"] = False
+        print("Click any channel panel. The same slicer-relative position will be refitted in U, G, R, and I.")
 
     def adjust_this_channel(event) -> None:
         state["manual"] = True
         state["channel_only"] = True
-        print("Click a channel panel to move only that channel's manual aperture.")
+        print("Click a channel panel to refit only that channel. The other channels remain unchanged.")
 
     def return_to_automatic(event) -> None:
         state["manual"] = False
@@ -465,7 +526,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
 
     def renormalise(channel: str) -> None:
         state["focus_channel"] = channel
-        redraw_spectra(selected if selected else None)
+        redraw_spectra(selected if selected else None, manual_traces if selected else None)
         figure.canvas.draw_idle()
 
     def contrast_down(event) -> None:
@@ -511,7 +572,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             button_widgets.append(button)
         button_specs = [
             ("Accept automatic", accept_auto, "#D7F2DF", "#BCE8CA"),
-            ("Manual extraction", begin_manual, "#D7E9FF", "#BCD8F5"),
+            ("Manual extraction + refit", begin_manual, "#D7E9FF", "#BCD8F5"),
             ("Adjust this channel only", adjust_this_channel, "#D7F4F2", "#B8E8E4"),
             ("Return to automatic", return_to_automatic, "#E8E1FF", "#D3C9F2"),
             ("Accept manual", accept_manual, "#FFE6B3", "#F5D296"),
@@ -581,6 +642,7 @@ def rerun_selected_exposure(
         try:
             run_dir, target_pypeit = create_target_copy(
                 source, exposure_from_spec2d(frame.spec2d), selections,
+                refit_manual_trace=manual,
             )
         except (OSError, RuntimeError) as error:
             print(f"ERROR: could not create one-exposure setup: {error}")

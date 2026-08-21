@@ -360,8 +360,27 @@ def write_target_pypeit(
     destination.write_text("\n".join(output) + "\n")
 
 
+def enable_manual_trace_refit(destination: Path) -> None:
+    """Enable the workflow's opt-in manual trace fit in a target-only setup."""
+    lines = destination.read_text().splitlines()
+    marker = next((index for index, line in enumerate(lines)
+                   if line.strip() == "setup read"), None)
+    if marker is None:
+        raise RuntimeError(f"Could not find 'setup read' in {destination}.")
+    block = [
+        "[reduce]",
+        "    [[findobj]]",
+        "        manual_refit_trace = True",
+        "        trace_maxshift = 3.0",
+        "",
+    ]
+    lines[marker:marker] = block
+    destination.write_text("\n".join(lines) + "\n")
+
+
 def create_target_copy(
     source_pypeit: Path, exposure: str, selections: list[Selection] | None = None,
+    refit_manual_trace: bool = False,
 ) -> tuple[Path, Path]:
     """Create an isolated PypeIt setup for one reviewed science exposure."""
     setup_dir = source_pypeit.parent
@@ -383,6 +402,8 @@ def create_target_copy(
         copied, destination, exposure,
         manual_value(selections) if selections is not None else None,
     )
+    if selections is not None and refit_manual_trace:
+        enable_manual_trace_refit(destination)
     copied.unlink()
     if selections is not None:
         (run_dir / f"manual_selection_{exposure}.json").write_text(
