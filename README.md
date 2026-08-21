@@ -97,8 +97,8 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
    The **Adjust this channel only** button makes the next click refit only the
    selected channel. The other channels retain their existing products. The
    saved PDF is replaced with your marked version.
-   Manual positions inherit PypeIt's measured FWHM separately for every
-   channel/slicer. Therefore, you can change pixel position but not extraction width.
+   A manual click refits the trace and its FWHM. The final PypeIt reduction
+   independently measures the selected source's width in every channel and slicer.
 
    The **Accept Manual** and **Accept Automatic** buttons run an isolated
    one-exposure PypeIt setup. They replace only that exposure's derived

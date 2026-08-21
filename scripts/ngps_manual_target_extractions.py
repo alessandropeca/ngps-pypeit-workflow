@@ -251,6 +251,59 @@ def refit_central_trace(frame: Frame, offset: float, fwhm: float) -> np.ndarray 
         return None
 
 
+def refit_central_fwhm(
+    frame: Frame, offset: float, fallback_fwhm: float, trace_offset: np.ndarray | None,
+) -> float:
+    """Estimate the selected central trace's width for the live review band.
+
+    The final reduction independently measures the width on *each* slicer in
+    PypeIt.  This lightweight estimate gives the reviewer an honest preview of
+    the central-slicer aperture and deliberately falls back to the automatic
+    value when the clicked trace is too faint for a stable measurement.
+    """
+    image, display_offsets, _ = central_slicer_image(frame)
+    if trace_offset is None:
+        trace_offset = np.full(image.shape[0], offset, dtype=float)
+    relative = np.arange(-24.0, 24.25, 0.25)
+    samples = np.full((image.shape[0], len(relative)), np.nan)
+    for row, centre in enumerate(trace_offset):
+        samples[row] = np.interp(
+            centre + relative, display_offsets, image[row], left=np.nan, right=np.nan,
+        )
+    profile = np.nanmedian(samples, axis=0)
+    edge = np.abs(relative) >= 18.0
+    background = np.nanmedian(profile[edge])
+    signal = profile - background
+    middle = int(np.argmin(np.abs(relative)))
+    peak = signal[middle]
+    noise = 1.4826 * np.nanmedian(np.abs(profile[edge] - background))
+    if (not np.isfinite(peak) or not np.isfinite(noise) or peak <= max(3.0 * noise, 0.0)):
+        return fallback_fwhm
+    half = peak / 2.0
+    left = np.where(signal[:middle] <= half)[0]
+    right = np.where(signal[middle + 1:] <= half)[0]
+    if not len(left) or not len(right):
+        return fallback_fwhm
+    left_index = left[-1]
+    right_index = middle + 1 + right[0]
+    if left_index + 1 >= len(relative) or right_index <= 0:
+        return fallback_fwhm
+    try:
+        left_crossing = np.interp(
+            half, signal[left_index:left_index + 2], relative[left_index:left_index + 2],
+        )
+        right_crossing = np.interp(
+            half, signal[right_index - 1:right_index + 1][::-1],
+            relative[right_index - 1:right_index + 1][::-1],
+        )
+        measured = float(right_crossing - left_crossing)
+    except (TypeError, ValueError):
+        return fallback_fwhm
+    if not np.isfinite(measured) or measured < 1.0 or measured > 24.0:
+        return fallback_fwhm
+    return measured
+
+
 def display_fwhm(frame: Frame) -> float:
     """Use the central slicer's automatic width in the dashboard."""
     _, _, selections = central_slicer_image(frame)
@@ -425,6 +478,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     def redraw_spectra(
         manual_offsets: dict[str, float] | None = None,
         manual_traces: dict[str, np.ndarray] | None = None,
+        manual_widths: dict[str, float] | None = None,
     ) -> None:
         for line in spectrum_lines:
             line.remove()
@@ -435,7 +489,8 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             if frame is None:
                 continue
             spectrum = (manual_quicklook_spectrum(
-                            frame, manual_offsets[channel], channel_fwhm[channel],
+                            frame, manual_offsets[channel],
+                            manual_widths.get(channel, channel_fwhm[channel]) if manual_widths else channel_fwhm[channel],
                             manual_traces.get(channel) if manual_traces else None,
                         )
                         if manual_offsets is not None and channel in manual_offsets
@@ -474,21 +529,28 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
 
     selection_artists: list[object] = []
     manual_traces: dict[str, np.ndarray] = {}
+    manual_widths: dict[str, float] = {}
 
     def redraw_selections() -> None:
         for artist in selection_artists:
             artist.remove()
         selection_artists.clear()
         manual_traces.clear()
+        manual_widths.clear()
         for channel, offset in selected.items():
             axis = axes[channel]
-            width = channel_fwhm[channel]
-            trial_trace = refit_central_trace(frames[channel], offset, width)
+            automatic_width = channel_fwhm[channel]
+            trial_trace = refit_central_trace(frames[channel], offset, automatic_width)
             if trial_trace is not None:
                 manual_traces[channel] = trial_trace
+            width = refit_central_fwhm(
+                frames[channel], offset, automatic_width, trial_trace,
+            )
+            manual_widths[channel] = width
+            if trial_trace is not None:
                 selection_artists.append(axis.plot(
                     trial_trace, np.arange(len(trial_trace)), color="#52D6E8", lw=1.2,
-                    label="manual refit preview",
+                    label=f"manual trace + FWHM {width:.1f} px",
                 )[0])
             selection_artists.append(axis.axvspan(offset - width / 2, offset + width / 2, color="tab:red", alpha=.24))
             selection_artists.append(axis.axvline(offset, color="tab:red", lw=.9))
@@ -498,7 +560,11 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             "Central-slice profiles\nmanual apertures" if selected
             else "Central-slice spatial profiles\none colour per channel"
         )
-        redraw_spectra(selected if selected else None, manual_traces if selected else None)
+        redraw_spectra(
+            selected if selected else None,
+            manual_traces if selected else None,
+            manual_widths if selected else None,
+        )
         figure.canvas.draw_idle()
 
     def click(event) -> None:
@@ -534,7 +600,11 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
 
     def renormalise(channel: str) -> None:
         state["focus_channel"] = channel
-        redraw_spectra(selected if selected else None, manual_traces if selected else None)
+        redraw_spectra(
+            selected if selected else None,
+            manual_traces if selected else None,
+            manual_widths if selected else None,
+        )
         figure.canvas.draw_idle()
 
     def contrast_down(event) -> None:
