@@ -43,7 +43,7 @@ git clone https://github.com/alessandropeca/ngps-pypeit-workflow.git "$WORKFLOW_
 cd "$WORKFLOW_ROOT"
 ```
 
-1. **Create the Conda environment**
+2. **Create the Conda environment**
 
 ---
 
@@ -52,7 +52,7 @@ conda env create -f environment.yml
 conda activate ngps
 ```
 
-1. **Install the pinned reduction software**
+3. **Install the pinned reduction software**
 
 ---
 
@@ -93,7 +93,7 @@ export NIGHT="$NGPS_WORK_ROOT/$DATE"
 cd "$WORKFLOW_ROOT"
 ```
 
-1. **Copy the raw FITS files**
+2. **Copy the raw FITS files**
 
 ---
 
@@ -107,7 +107,7 @@ find "$NIGHT/raw" -maxdepth 1 -name '*.fits' | wc -l
 
 Never rename, edit, split, or overwrite files in $NIGHT/raw/.
 
-1. **Reduce and review every science exposure**
+3. **Reduce and review every science exposure**
 
 ---
 
@@ -130,7 +130,7 @@ For the example target, open:
 
 `open "$NIGHT/ExtractionQA/MGC_04-48-002"`
 
-1. **Understand the extraction-review window**
+4. **Understand the extraction-review window**
 
 ---
 
@@ -148,7 +148,7 @@ If the automatic trace follows the desired source, click **Accept automatic**.
 If it does not, click **Manual extraction + refit**, select the desired trace
 in the 2D panel, and then click **Accept manual**.
 
-1. **Re-open one exposure for another review**
+5. **Re-open one exposure for another review**
 
 ---
 
@@ -185,7 +185,7 @@ After accepting automatic or manual extraction, wait for the terminal to say
 that the re-extraction has finished. If the exposure was already flux
 calibrated, repeat Parts 9–12 below before using it in a coadd.
 
-1. **Build and inspect the flux-calibration plan**
+6. **Build and inspect the flux-calibration plan**
 
 ---
 
@@ -204,7 +204,7 @@ to one consecutive science-exposure group, channel, and setup. If an
 association is unsuitable, edit the standard_filename in that row, save it,
 and rerun the second command to check the plan.
 
-1. **Run and audit flux calibration**
+7. **Run and audit flux calibration**
 
 ---
 
@@ -219,7 +219,7 @@ and is excluded from coaddition. Read:
 
 `$NIGHT/sensitivity_review.csv`
 
-1. **Identify repeat observations and review the proposed coadds**
+8. **Identify repeat observations and review the proposed coadds**
 
 ---
 
@@ -231,7 +231,7 @@ This writes `$NIGHT/coadd_review.csv`. It groups repeated observations of the
 same target by channel and setup. Review this file and set status to discard
 for any exposure flagged in the observing log or visibly unsuitable.
 
-1. **Coadd all safe repeat groups automatically**
+9. **Coadd all safe repeat groups automatically**
 
 ---
 
@@ -255,7 +255,7 @@ python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002'
 Click Accept selection to replace that target/channel/setup coadd. Click
 Cancel or close the window to leave it unchanged.
 
-1. **Apply telluric correction to R and I coadds**
+10. **Apply telluric correction to R and I coadds**
 
 ---
 
@@ -286,7 +286,7 @@ $NIGHT/TelluricQA/<target>/`
 Read `$NIGHT/telluric_review.csv`. Failed telluric products are not used for the
 final plot.
 
-1. **Make final U/G/R/I plots**
+11. **Make final U/G/R/I plots**
 
 ---
 
@@ -311,7 +311,7 @@ the four channels separate and does not merge them into a single spectrum.
 The grey curve is native sampling; the coloured curve is a display-only
 inverse-variance rebin of two pixels. Neither changes the FITS data.
 
-1. **Deliverable files**
+12. **Deliverable files**
 
 ---
 
