@@ -1,901 +1,352 @@
-NGPS REDUCTION GUIDE — PINNED INSTALLATION THROUGH EXTRACTED 1D SPECTRA
-===============================================================================
+## Purpose
 
-PROJECT BASELINE
-----------------
-This is the maintained guide for the ngps-pypeit-workflow project.  It uses
-fixed Git commits, never a floating upstream branch.  Before reducing data, set:
+This guide reduces one night of Palomar/NGPS data from unmodified raw FITS
+files to flux-calibrated, telluric-corrected (R and I), coadded 1D spectra.
+It uses the maintained, version-pinned workflow. Do not replace the pinned
+software commits with a newer upstream branch during a reduction.
 
-    WORKFLOW_ROOT="$HOME/Documents/GitHub/ngps-pypeit-workflow"
+This is a working guide, not a recipe for modifying raw data. Keep the raw
+FITS files unchanged. All products are written under the chosen work folder.
 
-The exact versions are recorded in $WORKFLOW_ROOT/upstream-lock.yml.  The NGPS
-wrapper is downloaded from Alessandro Peca's maintained fork; the original
-Christoffer Fremling repository is retained only as the documented upstream.
+## Before you start
 
+You need:
 
+- macOS or Linux, Git, and Conda (Miniconda or Anaconda)
+- enough free disk space for raw data, calibrations, and reductions
+- the original NGPS FITS files for one observing night
+- internet access during the one-time installation
 
-This guide reproduces the workflow that successfully reduced the 20260623 NGPS
-night through wavelength-calibrated, sky-subtracted, extracted 1D spectra.
+Choose your own folders. The examples below use:
 
-WORKING SETUP
--------------
-Software directory:
-    ~/Software
+GitHub projects:  $HOME/Documents/GitHub
+Software:         $HOME/Software
+Work products:    $HOME/ngps_data/work
 
-Repositories:
-    ~/Software/PypeIt
-    ~/Software/ngps_pipeline
+Do not copy another person's absolute paths. Set the variables below once in
+each new terminal session so the commands work on your computer.
 
-Both are required and are installed separately. PypeIt is the reduction engine
-and provides the NGPS instrument support; ngps_pipeline is the operational
-wrapper that calls PypeIt. The wrapper does not include PypeIt.
+# PART A — INSTALL ONCE
 
-Conda environment:
-    ngps
+1. **Clone the maintained workflow**
 
-Python:
-    3.11
+---
 
-Raw-data work directory:
-    ~/ngps_data/work/<DATE>/raw
+Open Terminal and run:
 
-Example date used here:
-    20260623
+```bash
+export GITHUB_ROOT="$HOME/Documents/GitHub"
+export SOFTWARE_ROOT="$HOME/Software"
+export WORKFLOW_ROOT="$GITHUB_ROOT/ngps-pypeit-workflow"
+mkdir -p "$GITHUB_ROOT" "$SOFTWARE_ROOT"
+git clone https://github.com/alessandropeca/ngps-pypeit-workflow.git "$WORKFLOW_ROOT"
+cd "$WORKFLOW_ROOT"
+```
 
-IMPORTANT RESULT FROM THIS NIGHT
---------------------------------
-The standard NGPS wrapper command:
+1. **Create the Conda environment**
 
-    python -m ngps_pipeline.reduce 20260623 --skip-db-import
+---
 
-was not sufficient for this night because the data contained multiple PypeIt
-configurations distinguished by detector binning.
+```bash
+conda env create -f environment.yml
+conda activate ngps
+```
 
-For each channel, PypeIt found four configurations:
+1. **Install the pinned reduction software**
 
-    Setup A: binning 1,2
-    Setup B: binning 3,2
-    Setup C: binning 3,4
-    Setup D: binning 4,4
+---
 
-Setup A contained science but no matching calibration set. Setups B, C, and D
-contained science plus calibration frames. The successful solution was therefore
-to run pypeit_setup with -c all for every channel and reduce all valid setups.
+PypeIt performs the reduction. ngps_pipeline is the operational NGPS wrapper.
+Both are required. The long strings below are fixed Git commit IDs. Leave them
+exactly as written.
 
-===============================================================================
-1. OPTIONAL CLEAN START
-===============================================================================
+```bash
+git clone https://github.com/cfremling/PypeIt.git "$SOFTWARE_ROOT/PypeIt"
+git -C "$SOFTWARE_ROOT/PypeIt" checkout e9ed85c1a237c49626227f4227e323fc390def4b
+git clone https://github.com/alessandropeca/ngps_pipeline.git "$SOFTWARE_ROOT/ngps_pipeline"
+git -C "$SOFTWARE_ROOT/ngps_pipeline" checkout 55fa9491eb1683769006118c46b26963bbf33ea2
+python -m pip install -e "$SOFTWARE_ROOT/PypeIt"
+python -m pip install -e "$SOFTWARE_ROOT/ngps_pipeline"
+python tools/apply_pypeit_manual_refit_patch.py "$SOFTWARE_ROOT/PypeIt"
+python tools/verify_environment.py
+```
 
-Deactivate any current Conda environment:
+The final command must report both pinned commits as OK. If it does not, stop
+and ask the supervisor before reducing data.
 
-    conda deactivate
+# PART B — REDUCE ONE REAL NIGHT
 
-Remove old dedicated NGPS/PypeIt environments if needed:
+The real example below uses the 2026-06-23 NGPS night and the target
+MGC+04-48-002. Substitute your own date and target later, but keep the order
+of operations unchanged.
 
-    conda env remove -n ngps -y
-    conda env remove -n pypeit -y
+1. **Start a new reduction session**
 
-Remove old clones only if you truly want a fresh installation:
+---
 
-    rm -rf ~/Software/ngps_pipeline
-    rm -rf ~/Software/PypeIt
+```bash
+conda activate ngps
+export WORKFLOW_ROOT="$HOME/Documents/GitHub/ngps-pypeit-workflow"
+export NGPS_WORK_ROOT="$HOME/ngps_data/work"
+export DATE=20260623
+export NIGHT="$NGPS_WORK_ROOT/$DATE"
+cd "$WORKFLOW_ROOT"
+```
 
-Optional: remove old PypeIt cached/reference data:
+1. **Copy the raw FITS files**
 
-    rm -rf ~/.pypeit
+---
 
-Check remaining environments:
+Replace /PATH/TO/RAW/FILES with the folder containing the original FITS files.
 
-    conda env list
+```bash
+mkdir -p "$NIGHT/raw"
+rsync -av "/PATH/TO/RAW/FILES/"*.fits "$NIGHT/raw/"
+find "$NIGHT/raw" -maxdepth 1 -name '*.fits' | wc -l
+```
 
-Check old PypeIt executables:
+Never rename, edit, split, or overwrite files in $NIGHT/raw/.
 
-    hash -r
-    rehash 2>/dev/null
+1. **Reduce and review every science exposure**
 
-    which -a pypeit_setup
-    which -a run_pypeit
-    which -a pypeit_show_1dspec
+---
 
-===============================================================================
-2. CREATE THE SOFTWARE DIRECTORY
-===============================================================================
+```bash
+python scripts/ngps_reduce_all_configs.py "$DATE"
+```
 
-    mkdir -p ~/Software
-    cd ~/Software
-    pwd
+This reduces every valid U/G/R/I channel and instrumental setup, then opens
+one extraction-review window at a time. Re-running replaces existing
+reduction products and refreshes the review PDFs.
 
-Expected:
+Do not use `--auto` for the student or full science-review workflow. It skips
+the windows and saves refreshed automatic-review PDFs only.
 
-    /Users/xpecax/Software
+The review PDFs are here:
 
-===============================================================================
-3. CLONE THE REPOSITORIES
-===============================================================================
+`$NIGHT/ExtractionQA/<target>/`
 
-Clone the NGPS wrapper:
+For the example target, open:
 
-    git clone https://github.com/alessandropeca/ngps_pipeline.git
-    git -C ~/Software/ngps_pipeline checkout 55fa9491eb1683769006118c46b26963bbf33ea2
+`open "$NIGHT/ExtractionQA/MGC_04-48-002"`
 
-Clone the NGPS-enabled PypeIt fork and check out its validated commit:
+1. **Understand the extraction-review window**
 
-    git clone https://github.com/cfremling/PypeIt.git
-    git -C ~/Software/PypeIt checkout e9ed85c1a237c49626227f4227e323fc390def4b
+---
 
-Check:
+Each PDF contains:
 
-    ls -ld ~/Software/ngps_pipeline ~/Software/PypeIt
+- four central-slicer 2D panels: U, G, R, I
+- gold curves: PypeIt's automatic traces
+- spatial profiles, one colour per channel
+- quick-look 1D counts spectra
 
-===============================================================================
-4. CREATE THE CONDA ENVIRONMENT
-===============================================================================
+The three NGPS slicers are extracted separately by PypeIt. The central-slicer
+panel is only the clearest place to choose the source position.
 
-    conda create -n ngps python=3.11 -y
-    conda activate ngps
+If the automatic trace follows the desired source, click **Accept automatic**.
+If it does not, click **Manual extraction + refit**, select the desired trace
+in the 2D panel, and then click **Accept manual**.
 
-Check:
+1. **Re-open one exposure for another review**
 
-    which python
-    python --version
-
-Expected Python path:
-
-    /opt/anaconda3/envs/ngps/bin/python
-
-===============================================================================
-5. UPDATE INSTALLATION TOOLS
-===============================================================================
-
-    python -m pip install --upgrade pip setuptools wheel
-
-===============================================================================
-6. INSTALL PYPEIT AND THE NGPS WRAPPER
-===============================================================================
-
-    python -m pip install -e ~/Software/PypeIt
-    python -m pip install -e ~/Software/ngps_pipeline
-
-===============================================================================
-7. VERIFY THE INSTALLATION
-===============================================================================
-
-    python -c "import sys, pypeit; print('Python:', sys.executable); print('PypeIt:', pypeit.__file__); print('PypeIt version:', pypeit.__version__)"
-
-Expected paths should resemble:
-
-    /opt/anaconda3/envs/ngps/bin/python
-    /Users/xpecax/Software/PypeIt/pypeit/__init__.py
-
-Check executables:
-
-    which pypeit_setup
-    which run_pypeit
-    which pypeit_sensfunc
-    which pypeit_flux_calib
-    which pypeit_show_1dspec
-
-They should point into:
-
-    /opt/anaconda3/envs/ngps/bin/
-
-===============================================================================
-8. VERIFY NGPS SUPPORT
-===============================================================================
-
-Do not use pypeit_setup --list with this development version.
-
-Instead:
-
-    python - <<'PY'
-from pypeit.spectrographs import p200_ngps
-print("NGPS module:", p200_ngps.__file__)
-print("NGPS class:", p200_ngps.P200NGPSSpectrograph)
-PY
-
-or, in one line:
-
-python -c "from pypeit.spectrographs import p200_ngps; print('NGPS module:', p200_ngps.__file__); print('NGPS class:', p200_ngps.P200NGPSSpectrograph)"
-
-Expected module path:
-
-    /Users/xpecax/Software/PypeIt/pypeit/spectrographs/p200_ngps.py
-
-Check the NGPS wrapper:
-
-    python -c "import ngps_pipeline.reduce; print(ngps_pipeline.reduce.__file__)"
-
-Expected:
-
-    /Users/xpecax/Software/ngps_pipeline/ngps_pipeline/reduce.py
-
-Check options:
-
-    python -m ngps_pipeline.reduce --help
-
-===============================================================================
-9. OPTIONAL WRAPPER CONFIG FILE
-===============================================================================
-
-The wrapper can work without this file because its default work directory is:
-
-    ~/ngps_data/work
-
-To create it explicitly:
-
-    mkdir -p ~/.config
-
-    cat > ~/.config/ngps_pipeline.toml <<'CFGEOF'
-work_dir = "/Users/xpecax/ngps_data/work"
-db_path = "/Users/xpecax/ngps_data/ngps_db.sqlite"
-
-[palomar]
-longitude_deg = -116.8639
-latitude_deg = 33.3563
-altitude_m = 1712.0
-CFGEOF
-
-===============================================================================
-10. PREPARE THE RAW-DATA DIRECTORY
-===============================================================================
-
-Set the observing date:
-
-    DATE=20260623
-
-Create the raw directory:
-
-    mkdir -p ~/ngps_data/work/${DATE}/raw
-
-Copy the original NGPS FITS files:
-
-    RAW_DIR="/PATH/TO/RAW/FILES"
-    rsync -av "${RAW_DIR}/"*.fits ~/ngps_data/work/${DATE}/raw/
-
-Check the count:
-
-    find ~/ngps_data/work/${DATE}/raw -maxdepth 1 -name "*.fits" | wc -l
-
-For 20260623 there were 151 raw FITS files.
-
-Keep the original NGPS FITS files unchanged. Do not manually split the U, G, R,
-and I extensions.
-
-===============================================================================
-11. WHY THE STANDARD WRAPPER FAILED FOR THIS NIGHT
-===============================================================================
-
-The first attempt was:
-
-    python -m ngps_pipeline.reduce 20260623 --skip-db-import
-
-The wrapper generated setup files but all four run_pypeit jobs failed.
-The detailed error was found with:
-
-    tail -n 150 ~/ngps_data/work/20260623/logs/run_r.log
-
-The fatal error was:
-
-    PypeItError: No frames of type=arc provided.
-
-The generated Setup A contained:
-
-    binning: 1,2
-
-and one science frame, but no matching arc, flat, bias, or standard frames.
-
-Running pypeit_setup with -c all showed that the night actually contained four
-configurations, and the complete calibration sets were in B, C, and D.
-
-===============================================================================
-12. OPTIONAL MANUAL DIAGNOSTIC FOR ONE CHANNEL
-===============================================================================
-
-Example for R:
-
-    rm -rf ~/ngps_data/work/20260623/manual_setup_r
-
-    pypeit_setup \
-        -s p200_ngps_r \
-        -r ~/ngps_data/work/20260623/raw \
-        -d ~/ngps_data/work/20260623/manual_setup_r \
-        -c all
-
-List generated PypeIt files:
-
-    find ~/ngps_data/work/20260623/manual_setup_r -name "*.pypeit" -print
-
-Inspect their frame assignments:
-
-    for pf in ~/ngps_data/work/20260623/manual_setup_r/*/*.pypeit; do
-        echo
-        echo "================================================"
-        echo "$pf"
-        echo "================================================"
-        grep -E "Setup |arc|tilt|pixelflat|trace|illumflat|bias|science|standard" "$pf"
-    done
-
-For this night:
-
-    A = 1,2   incomplete calibration set
-    B = 3,2   valid
-    C = 3,4   valid
-    D = 4,4   valid
-
-===============================================================================
-13. OPTIONAL TEST OF ONE CONFIGURATION
-===============================================================================
-
-R/Setup B was tested manually first:
-
-    cd ~/ngps_data/work/20260623/manual_setup_r/p200_ngps_r_B
-    run_pypeit p200_ngps_r_B.pypeit
-
-This completed successfully and produced spec1d and spec2d products.
-
-===============================================================================
-14. AUTOMATE ALL VALID CONFIGURATIONS
-===============================================================================
-
-Create:
-
-    Do not create a new local script. The maintained version is:
-
-    /scripts/ngps_reduce_all_configs.py
-
-The historical inline copy below is retained only as a record of the 20260623
-solution; do not edit or run it from ~/Software.
-
-Paste the following script:
-
--------------------------------------------------------------------------------
-BEGIN SCRIPT
--------------------------------------------------------------------------------
-
-#!/usr/bin/env python3
-
-from __future__ import annotations
-
-import argparse
-import re
-import shutil
-import subprocess
-from pathlib import Path
-
-
-CHANNELS = ("r", "g", "i", "u")
-
-
-def run(cmd: list[str], cwd: Path | None = None) -> bool:
-    print("\n>>>", " ".join(cmd), flush=True)
-    result = subprocess.run(cmd, cwd=cwd)
-    if result.returncode != 0:
-        print(f"ERROR: command failed with code {result.returncode}")
-        return False
-    return True
-
-
-def inspect_pypeit_file(path: Path) -> dict:
-    text = path.read_text()
-
-    match = re.search(r"binning:\s*([^\n]+)", text)
-    binning = match.group(1).strip() if match else "unknown"
-
-    frame_types = set()
-    in_data_block = False
-
-    for line in text.splitlines():
-        stripped = line.strip()
-
-        if stripped == "data read":
-            in_data_block = True
-            continue
-
-        if stripped == "data end":
-            in_data_block = False
-            continue
-
-        if not in_data_block:
-            continue
-
-        if not stripped or stripped.startswith("#"):
-            continue
-
-        parts = line.split("|")
-        if len(parts) < 2:
-            continue
-
-        frametype = parts[1].strip().lower()
-        if not frametype or frametype == "frametype":
-            continue
-
-        for ft in frametype.split(","):
-            frame_types.add(ft.strip())
-
-    return {
-        "binning": binning,
-        "has_science": "science" in frame_types,
-        "has_arc": "arc" in frame_types,
-        "has_flat": any(
-            x in frame_types
-            for x in ("pixelflat", "illumflat", "trace")
-        ),
-        "has_standard": "standard" in frame_types,
-        "has_bias": "bias" in frame_types,
-    }
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Reduce all valid NGPS PypeIt configurations for all four channels."
-    )
-
-    parser.add_argument("date", help="UT date, e.g. 20260623")
-    parser.add_argument(
-        "--force-setup",
-        action="store_true",
-        help="Delete and regenerate manual setup directories.",
-    )
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Pass --overwrite to run_pypeit.",
-    )
-
-    args = parser.parse_args()
-
-    work_root = Path.home() / "ngps_data" / "work" / args.date
-    raw_dir = work_root / "raw"
-
-    if not raw_dir.exists():
-        print(f"ERROR: raw directory does not exist:\n{raw_dir}")
-        return 1
-
-    print(f"\nNGPS night: {args.date}")
-    print(f"Raw data:   {raw_dir}")
-
-    jobs: list[tuple[str, Path, dict]] = []
-
-    for channel in CHANNELS:
-        setup_root = work_root / f"manual_setup_{channel}"
-
-        if args.force_setup and setup_root.exists():
-            print(f"\nRemoving old setup directory: {setup_root}")
-            shutil.rmtree(setup_root)
-
-        if not setup_root.exists():
-            ok = run(
-                [
-                    "pypeit_setup",
-                    "-s",
-                    f"p200_ngps_{channel}",
-                    "-r",
-                    str(raw_dir),
-                    "-d",
-                    str(setup_root),
-                    "-c",
-                    "all",
-                ]
-            )
-
-            if not ok:
-                print(f"Skipping channel {channel}: setup failed.")
-                continue
-
-        pypeit_files = sorted(setup_root.glob("*/*.pypeit"))
-
-        print(
-            f"\n{'=' * 70}\n"
-            f"CHANNEL {channel.upper()}: {len(pypeit_files)} configuration(s)\n"
-            f"{'=' * 70}"
-        )
-
-        for pf in pypeit_files:
-            info = inspect_pypeit_file(pf)
-            setup_name = pf.parent.name
-
-            print(
-                f"\n{setup_name}"
-                f"\n  binning:  {info['binning']}"
-                f"\n  science:  {info['has_science']}"
-                f"\n  arc:      {info['has_arc']}"
-                f"\n  flat:     {info['has_flat']}"
-                f"\n  bias:     {info['has_bias']}"
-                f"\n  standard: {info['has_standard']}"
-            )
-
-            if info["has_science"] and info["has_arc"] and info["has_flat"]:
-                print("  --> VALID: will reduce")
-                jobs.append((channel, pf, info))
-            else:
-                print("  --> SKIP: incomplete science/calibration setup")
-
-    print("\n")
-    print("=" * 70)
-    print("CONFIGURATIONS SELECTED FOR REDUCTION")
-    print("=" * 70)
-
-    for channel, pf, info in jobs:
-        print(
-            f"{channel.upper():2s}  "
-            f"{pf.parent.name:20s}  "
-            f"binning={info['binning']}"
-        )
-
-    if not jobs:
-        print("\nNo valid configurations found.")
-        return 1
-
-    for number, (channel, pf, info) in enumerate(jobs, start=1):
-        print("\n")
-        print("#" * 70)
-        print(
-            f"REDUCTION {number}/{len(jobs)}"
-            f"  channel={channel.upper()}"
-            f"  setup={pf.parent.name}"
-            f"  binning={info['binning']}"
-        )
-        print("#" * 70)
-
-        science_dir = pf.parent / "Science"
-        existing = (
-            list(science_dir.glob("spec1d_*.fits"))
-            if science_dir.exists()
-            else []
-        )
-
-        if existing and not args.overwrite:
-            print(
-                f"Found {len(existing)} existing spec1d files. "
-                "Skipping this setup."
-            )
-            continue
-
-        cmd = ["run_pypeit", pf.name]
-        if args.overwrite:
-            cmd.append("--overwrite")
-
-        ok = run(cmd, cwd=pf.parent)
-        if not ok:
-            print(f"\nWARNING: reduction failed for {pf.parent.name}.")
-
-    print("\n")
-    print("=" * 70)
-    print("REDUCTION SUMMARY")
-    print("=" * 70)
-
-    total_spec1d = 0
-
-    for channel, pf, info in jobs:
-        science_dir = pf.parent / "Science"
-        spec1d = (
-            sorted(science_dir.glob("spec1d_*.fits"))
-            if science_dir.exists()
-            else []
-        )
-
-        total_spec1d += len(spec1d)
-
-        print(
-            f"{channel.upper():2s}  "
-            f"{pf.parent.name:20s}  "
-            f"binning={info['binning']:8s}  "
-            f"spec1d={len(spec1d)}"
-        )
-
-    print(f"\nTotal spec1d files: {total_spec1d}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
--------------------------------------------------------------------------------
-END SCRIPT
--------------------------------------------------------------------------------
-
-Save in nano:
-
-    Ctrl+O
-    Enter
-    Ctrl+X
-
-Run:
-
-    conda activate ngps
-    python "/scripts/ngps_reduce_all_configs.py" 20260623
-
-Optional: regenerate setup directories:
-
-    python "/scripts/ngps_reduce_all_configs.py" 20260623 --force-setup
-
-Optional: rerun already reduced configurations:
-
-    python "/scripts/ngps_reduce_all_configs.py" 20260623 --overwrite
-
-===============================================================================
-15. SUCCESSFUL RESULT FOR 20260623
-===============================================================================
-
-The successful reduction produced:
-
-    R   p200_ngps_r_B   binning=3,2   spec1d=10
-    R   p200_ngps_r_C   binning=3,4   spec1d=4
-    R   p200_ngps_r_D   binning=4,4   spec1d=15
-
-    G   p200_ngps_g_B   binning=3,2   spec1d=10
-    G   p200_ngps_g_C   binning=3,4   spec1d=4
-    G   p200_ngps_g_D   binning=4,4   spec1d=28
-
-    I   p200_ngps_i_B   binning=3,2   spec1d=10
-    I   p200_ngps_i_C   binning=3,4   spec1d=4
-    I   p200_ngps_i_D   binning=4,4   spec1d=28
-
-    U   p200_ngps_u_B   binning=3,2   spec1d=10
-    U   p200_ngps_u_C   binning=3,4   spec1d=4
-    U   p200_ngps_u_D   binning=4,4   spec1d=28
-
-Total:
-
-    155 spec1d files
-
-At this point you have individual reduced 1D spectra, not yet coadded and not yet
-fully flux calibrated.
-
-===============================================================================
-16. FIND THE REDUCED 1D SPECTRA
-===============================================================================
-
-Example for R:
-
-    find ~/ngps_data/work/20260623/manual_setup_r -path "*/Science/spec1d*.fits"
-
-Across all channels:
-
-    find ~/ngps_data/work/20260623/manual_setup_{r,g,i,u} -path "*/Science/spec1d*.fits"
-
-Find one target:
-
-    find ~/ngps_data/work/20260623/manual_setup_{r,g,i,u} \
-        -path "*Science/spec1d*MGC+04-48-002*.fits"
-
-===============================================================================
-17. VIEW A 1D SPECTRUM
-===============================================================================
+---
 
 Example:
 
-    cd ~/ngps_data/work/20260623/manual_setup_r/p200_ngps_r_B
+```bash
+python scripts/ngps_manual_target_extractions.py "$DATE" --target 'MGC+04-48-002' --exposure 0121
+```
 
-    pypeit_show_1dspec \
-        ./Science/spec1d_ngps_260623_0123-MGC+04-48-002_NGPS_r_20260623T094242.770.fits
+Buttons in the window:
 
-If Ginga times out on first launch, start it manually:
+Accept automatic
+Rerun and replace only this exposure using PypeIt's automatic choice.
 
-    ginga --rcport=11771 --modules=RC,SlitWavelength
+Manual extraction + refit
+Click the target in any channel. The same slicer-relative position is
+applied to U/G/R/I. PypeIt refits the trace and FWHM independently in
+every channel and in all three slicers.
 
-Leave Ginga running and rerun pypeit_show_1dspec in another terminal.
+Adjust this channel only
+Click a channel to refit only that channel and its three slicers. The
+remaining channels retain their previous extracted products.
 
-===============================================================================
-18. WHAT IS COMPLETE AT THIS POINT
-===============================================================================
+Return to automatic
+Remove manual choices and restore the automatic display.
 
-For every valid B/C/D configuration in every U/G/R/I channel:
+Accept manual
+Rerun and replace only the selected exposure/channel products.
 
-    [DONE] raw-file organization
-    [DONE] frame typing
-    [DONE] separation by detector-binning configuration
-    [DONE] bias processing
-    [DONE] flat processing
-    [DONE] trace/slit calibration
-    [DONE] wavelength calibration
-    [DONE] sky subtraction
-    [DONE] reduced 2D spectra
-    [DONE] extracted 1D spectra
-    [DONE] QA products
+Cancel, or close the window
+Make no changes to products or the existing review PDF.
 
-===============================================================================
-19. WHAT IS STILL MISSING
-===============================================================================
+After accepting automatic or manual extraction, wait for the terminal to say
+that the re-extraction has finished. If the exposure was already flux
+calibrated, repeat Parts 9–12 below before using it in a coadd.
 
-1. SENSITIVITY FUNCTION / FLUX CALIBRATION
------------------------------------------
-For each channel and each configuration, identify a suitable reduced standard-star
-spec1d file, build a sensitivity function with pypeit_sensfunc, and apply it to
-science spec1d files with pypeit_flux_calib.
+1. **Build and inspect the flux-calibration plan**
 
-This still needs a multi-configuration-aware automation script.
+---
 
-2. COADDITION OF REPEATED EXPOSURES
------------------------------------
-Repeated observations of the same target must be grouped by target, channel, and
-configuration/binning, then coadded into one spectrum per target per channel.
+```bash
+python scripts/ngps_inventory_standards.py "$DATE"
+python scripts/ngps_flux_calibrate.py "$DATE"
+```
 
-3. TELLURIC CORRECTION
-----------------------
-Atmospheric absorption, especially in the redder channels, still needs to be
-corrected. The NGPS wrapper has an empirical telluric procedure, but its behavior
-must be adapted or checked for multiple configurations.
+These commands do not alter spectra. They create:
 
-4. MERGE U + G + R + I
-----------------------
-After each target has one calibrated/coadded spectrum per channel, merge the four
-channels with overlap checks, edge masking, flux-scale consistency checks, and
-appropriate inverse-variance weighting.
+`$NIGHT/science_standard_inventory.csv`
+`$NIGHT/science_standard_associations.csv`
 
-5. SCIENCE VALIDATION
----------------------
-Inspect wavelength accuracy, sky residuals, extraction quality, standard-star
-response, flux calibration, channel overlaps, telluric residuals, propagated
-uncertainties, and masks before scientific use.
+Inspect science_standard_associations.csv. Each row assigns one standard star
+to one consecutive science-exposure group, channel, and setup. If an
+association is unsuitable, edit the standard_filename in that row, save it,
+and rerun the second command to check the plan.
 
-===============================================================================
-20. SPECIAL NOTE ABOUT SETUP A
-===============================================================================
+1. **Run and audit flux calibration**
 
-For 20260623:
+---
 
-    Setup A = binning 1,2
+```bash
+python scripts/ngps_flux_calibrate.py "$DATE" --run
+python scripts/ngps_audit_flux.py "$DATE"
+```
 
-It contained science frames but no calibration frames that PypeIt considered
-compatible with that setup, so the automation intentionally skipped it.
+Flux-calibrated copies are written in each setup's Fluxed/ folder. The audit
+must be read before coadding. A group with no safe standard remains unfluxed
+and is excluded from coaddition. Read:
 
-This does not prove that no Setup A calibration exposures were ever taken. It only
-means that the available files and current PypeIt configuration matching did not
-associate a usable calibration set with the 1,2 setup.
+`$NIGHT/sensitivity_review.csv`
 
-===============================================================================
-21. CURRENT END POINT
-===============================================================================
+1. **Identify repeat observations and review the proposed coadds**
 
-    151 raw FITS files
-        ↓
-    12 valid channel/configuration reductions
-        ↓
-    155 extracted spec1d files
-        ↓
-    NEXT:
-        sensitivity functions
-        flux calibration
-        coaddition
-        telluric correction
-        U/G/R/I merging
+---
 
-===============================================================================
+```bash
+python scripts/ngps_interactive_coadd.py "$DATE" --list-groups
+```
 
-===============================================================================
-22. FLUX CALIBRATION AND AUDIT — MAINTAINED PROJECT SCRIPTS
-===============================================================================
+This writes `$NIGHT/coadd_review.csv`. It groups repeated observations of the
+same target by channel and setup. Review this file and set status to discard
+for any exposure flagged in the observing log or visibly unsuitable.
 
-The original guide stopped before flux calibration. The pinned workflow now
-tracks the required scripts. After the extracted spectra are present, use this
-safe sequence: inventory, preview the planned associations, run the
-calibration, then audit its output. Only the third command writes fluxed
-science products:
+1. **Coadd all safe repeat groups automatically**
 
-    # Read-only inventory of science and standard-star exposures.
-    python "$WORKFLOW_ROOT/scripts/ngps_inventory_standards.py" 20260623
+---
 
-    # Read-only preview of the proposed sensitivity/science associations.
-    python "$WORKFLOW_ROOT/scripts/ngps_flux_calibrate.py" 20260623
+```bash
+python scripts/ngps_interactive_coadd.py "$DATE" --all --auto
+```
 
-    # Create sensitivity functions and Fluxed science copies.
-    python "$WORKFLOW_ROOT/scripts/ngps_flux_calibrate.py" 20260623 --run
+This saves a review PDF for each coadd and writes the coadded FITS products.
+It keeps all three slicer traces from an included exposure together. Outputs:
 
-    # Read-only verification that the Fluxed files contain FLAM.
-    python "$WORKFLOW_ROOT/scripts/ngps_audit_flux.py" 20260623
+Review PDFs:  `$NIGHT/CoaddQA/<target>/`
+Coadded FITS: `$NIGHT/Coadds/<target_channel_setup>/`
+Summary:      `$NIGHT/coadd_run_summary.csv`
 
-The first flux-calibration invocation identifies the proposed associations and
-writes the PypeIt configuration files; only `--run` creates sensitivity
-functions and applies flux calibration. The scripts preserve unfluxed inputs by
-working in Fluxed/ directories. For the known I/C sensitivity-function QA-only
-failure, the tracked script retries without QA so that the valid
-sensitivity-function FITS product is saved.
+For a single target, open the interactive coadd review instead:
 
-===============================================================================
-23. INTERACTIVE REVIEW BEFORE COADDING
-===============================================================================
+```bash
+python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002'
+```
 
-Do not confuse repeat exposures with the three image-slicer traces that appear
-inside one raw NGPS exposure. The coadd reviewer finds repeat observations of
-one target by its inventory name, then groups them by channel and PypeIt setup.
-For example, 0121, 0122, and 0123 are three repeat exposures; each panel in the
-review window shows the three slicer traces belonging to one of those exposures.
-For a good point-source exposure, keep all three slicer traces together: they
-are the pieces that NGPS intends to recombine for the full source signal. A
-spatially extended or blended source must first be checked in the 2D frame and,
-where needed, re-extracted with the interactive extraction tool.
+Click Accept selection to replace that target/channel/setup coadd. Click
+Cancel or close the window to leave it unchanged.
 
-First list target/channel/setup groups without opening a review window:
+1. **Apply telluric correction to R and I coadds**
 
-    python "$WORKFLOW_ROOT/scripts/ngps_interactive_coadd.py" 20260623 \
-        --list-groups
+---
 
-Then inspect the groups and proposed inputs for one target:
+Install the PypeIt atmospheric model once:
 
-    python "$WORKFLOW_ROOT/scripts/ngps_interactive_coadd.py" 20260623 \
-        --target MGC+04-48-002 \
-        --summary
+```bash
+pypeit_install_telluric TellPCA_3000_26000_R10000.fits
+```
 
-Then run the interactive review:
+First inspect the proposed work:
 
-    python "$WORKFLOW_ROOT/scripts/ngps_interactive_coadd.py" 20260623 \
-        --target MGC+04-48-002
+```bash
+python scripts/ngps_telluric_correct.py "$DATE" --all
+```
 
-If the target has several channel/setup groups, enter the group numbers to
-review. The display contains an overlay and one panel plus checkbox per repeat
-exposure. Unticking an exposure excludes all three of its slicer traces. To
-choose only particular files before the window opens, use one or more
-`--exposure` arguments. After acceptance, the script asks separately whether to
-write a new coadd setup and whether to run it. It never alters the individual
-Fluxed spectra or overwrites a previous coadd directory.
+Then run it:
 
-Before this coadd review, check the extraction-review PDF made for every raw
-science exposure. To reduce without stopping, while still creating those PDFs,
-use:
+```bash
+python scripts/ngps_telluric_correct.py "$DATE" --all --run
+```
 
-    python "$WORKFLOW_ROOT/scripts/ngps_reduce_all_configs.py" 20260623 --auto
+Telluric correction is applied to R and I only. U and G have no telluric
+correction in this workflow. Corrected products and QA PDFs are saved in:
 
-The PDFs are in `ExtractionQA/<target>/`. Each one presents one exposure as a
-four-channel U/G/R/I dashboard: four slicer-aligned 2D diagnostic panels,
-coloured spatial profiles, and quick-look 1D spectra. The aligned 2D view is a
-review display only, not a science coadd.
+`$NIGHT/Telluric/<target>/
+$NIGHT/TelluricQA/<target>/`
 
-To revise one already-reduced suspicious target/exposure, open the same
-per-exposure dashboard. This command is for a single target and exposure; use
-`ngps_reduce_all_configs.py` for a whole night:
+Read `$NIGHT/telluric_review.csv`. Failed telluric products are not used for the
+final plot.
 
-    python "$WORKFLOW_ROOT/scripts/ngps_manual_target_extractions.py" 20260623 \
-        --target MGC+04-48-002 \
-        --exposure 0121
+1. **Make final U/G/R/I plots**
 
-**Accept automatic** reruns PypeIt's automatic extraction for that exposure
-only. **Manual extraction** lets you click a spatial position in any channel
-panel; that position is mapped to all three slicers of that channel and linked
-across U/G/R/I. **Adjust this channel only** makes the next click move only its
-selected channel. The
-accepted manual review replaces the automatic PDF as the audit
-record. Either accepted decision creates an isolated one-exposure setup,
-reruns PypeIt, and replaces only that exposure's `spec1d/spec2d` products.
-Other exposures in the same configuration are untouched. Flux calibration is
-the later workflow step, so this review/extraction stage never touches
-`Fluxed/` products.
+---
 
-**Cancel**, or closing the window, is a true no-op: it leaves the existing
-review PDF and every PypeIt product unchanged.
+For every target:
 
-Do not invoke `--all` directly. It is used internally when the full-night
-reduction driver opens dashboards for every reduced exposure.
+```bash
+python scripts/ngps_plot_final_spectra.py "$DATE" --all --noUGedges
+```
 
-Manual positions inherit PypeIt's measured FWHM separately for every
-channel/slicer. The red dashboard band shows the representative median width
-for that channel; the copied PypeIt file retains the individual slicer widths.
+For one target, including an interactive plot window:
 
-The `Re-norm U`, `Re-norm G`, `Re-norm R`, and `Re-norm I` controls alter only
-the quick-look y-range, using the chosen channel. They are display aids and do
-not alter detector counts, selections, or PypeIt products.
+```bash
+python scripts/ngps_plot_final_spectra.py "$DATE" --target 'MGC+04-48-002'
+```
 
-Omit `--auto` when running `ngps_reduce_all_configs.py` to open each
-per-exposure dashboard as soon as reduction is complete.
+Final PDF and PNG files are saved in:
 
-The generated setup, selected-file record, and coadd product are kept in:
+`$NIGHT/FinalQA/<target>/`
 
-    $NGPS_WORK_ROOT/20260623/Coadds/<target>_<channel>_<setup>/
+The final plot uses telluric-corrected R/I products when available. It keeps
+the four channels separate and does not merge them into a single spectrum.
+The grey curve is native sampling; the coloured curve is a display-only
+inverse-variance rebin of two pixels. Neither changes the FITS data.
 
-Telluric correction and U/G/R/I merging should be reviewed in the same way;
-they are not performed by this coadd command. The intended order is: coadd
-repeat observations within each channel/setup, correct telluric absorption on
-the resulting per-channel spectra, then merge U+G+R+I.
+1. **Deliverable files**
 
-===============================================================================
-24. RECORD THE WORKFLOW VERSION
-===============================================================================
+---
 
-For each reduction, record the Git commit or release tag of this workflow
-repository plus the contents of upstream-lock.yml. Before a new night, run:
+For scientific sharing, provide the final coadded FITS files:
 
-    cd "$WORKFLOW_ROOT"
-    python tools/verify_environment.py
+U/G: `$NIGHT/Coadds/<target_channel_setup>/*_coadd.fits`
+R/I: `$NIGHT/Telluric/<target>/*_coadd_tellcorr.fits`
 
-If this reports a different or dirty upstream checkout, stop and recreate the
-pinned environment before continuing. See docs/MAINTENANCE.md before any update.
+Also provide the final QA plot and state clearly:
+
+- observing date
+- target name
+- total exposure time
+- channel/setup
+- whether R/I are telluric-corrected
+- whether a manual extraction was accepted
+
+# COMMON RULES AND TROUBLESHOOTING
+
+1. Do not use pypeit_show_1dspec in this workflow. Use the saved PDFs and the
+final plotting script instead.
+2. If an automatic extraction is wrong, revise only the affected exposure.
+Do not rerun the full night unless you want to replace all automatic
+products.
+3. A manual position is not merely shifted. It triggers a new trace and FWHM
+fit for the selected source. Linked mode refits all channels. Per-channel
+mode refits only the chosen channel.
+4. If you change an extraction after flux calibration, you must repeat flux
+calibration, coaddition, telluric correction, and final plotting for the
+affected target before distributing its final spectrum.
+5. If the flux audit reports an unsafe or missing standard, do not force a
+coadd. Read sensitivity_review.csv and ask the supervisor.
+6. If a target has only one exposure, it is not a repeat-exposure coadd group.
+Its flux-calibrated extracted spectrum remains a valid single-exposure
+product, but it should be labelled accordingly.
+7. Keep the pinned installation. To update software later, follow the
+repository's docs/MAINTENANCE.md and validate on test data before using a
+new version for science.
