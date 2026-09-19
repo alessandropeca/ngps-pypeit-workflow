@@ -183,7 +183,7 @@ Make no changes to products or the existing review PDF.
 
 After accepting automatic or manual extraction, wait for the terminal to say
 that the re-extraction has finished. If the exposure was already flux
-calibrated, repeat Parts 9–12 below before using it in a coadd.
+calibrated, repeat steps 6–12 before using it in a coadd.
 
 6. **Build and inspect the flux-calibration plan**
 

@@ -1,369 +1,162 @@
 # NGPS / PypeIt reduction workflow
 
-This repository contains the reproducible NGPS reduction scripts. It installs
-the pinned NGPS-enabled [PypeIt fork](https://github.com/cfremling/PypeIt)
-separately. 
-PypeIt is the reduction engine and
-[`ngps_pipeline`](https://github.com/alessandropeca/ngps_pipeline) is its
-operational wrapper. The official PypeIt project is
-[here](https://github.com/pypeit/PypeIt).
+This repository provides a reproducible Palomar/NGPS reduction workflow from
+raw FITS files through reviewed extraction, flux calibration, coaddition,
+telluric correction of R/I, and final U/G/R/I plots.
+
+The detailed, student-facing procedure is the
+[NGPS reduction guide](docs/NGPS_REDUCTION_GUIDE.md). It is the canonical
+workflow. This README is a concise reference.
+
+PypeIt is the reduction engine. [`ngps_pipeline`](https://github.com/alessandropeca/ngps_pipeline)
+is the operational NGPS wrapper. The official PypeIt project is
+[PypeIt](https://github.com/pypeit/PypeIt).
 
 ## Install once
 
-Choose folders for your own computer before running these commands. The two
-paths below are examples, not requirements. Use any locations you prefer and
-keep them consistent.
-
-Note: The long strings such as `e9ed85c1a237c49626227f4227e323fc390def4b` are Git
-commit IDs: unique labels for the exact tested software version. Do not edit
-them during installation.
+Choose your own locations. These are examples only.
 
 ```bash
 export GITHUB_ROOT="$HOME/Documents/GitHub"
 export SOFTWARE_ROOT="$HOME/Software"
 export WORKFLOW_ROOT="$GITHUB_ROOT/ngps-pypeit-workflow"
 mkdir -p "$GITHUB_ROOT" "$SOFTWARE_ROOT"
-
 git clone https://github.com/alessandropeca/ngps-pypeit-workflow.git "$WORKFLOW_ROOT"
 cd "$WORKFLOW_ROOT"
-
 conda env create -f environment.yml
 conda activate ngps
-
 git clone https://github.com/cfremling/PypeIt.git "$SOFTWARE_ROOT/PypeIt"
 git -C "$SOFTWARE_ROOT/PypeIt" checkout e9ed85c1a237c49626227f4227e323fc390def4b
 git clone https://github.com/alessandropeca/ngps_pipeline.git "$SOFTWARE_ROOT/ngps_pipeline"
 git -C "$SOFTWARE_ROOT/ngps_pipeline" checkout 55fa9491eb1683769006118c46b26963bbf33ea2
-
 python -m pip install -e "$SOFTWARE_ROOT/PypeIt"
 python -m pip install -e "$SOFTWARE_ROOT/ngps_pipeline"
 python tools/apply_pypeit_manual_refit_patch.py "$SOFTWARE_ROOT/PypeIt"
 python tools/verify_environment.py
 ```
 
-The final command must report both pinned commits as `OK`.
+The long strings are fixed Git commit IDs for the tested software versions.
+The verification command must report both pinned commits as `OK`.
 
-## Reduction for one night
+## Reduce one night
 
-Set the date and data location:
+Start each terminal session with:
 
 ```bash
-conda activate ngps  # if not already active
-export WORKFLOW_ROOT="$HOME/Documents/GitHub/ngps-pypeit-workflow"  # your chosen location
-cd "$WORKFLOW_ROOT"
+conda activate ngps
+export WORKFLOW_ROOT="$HOME/Documents/GitHub/ngps-pypeit-workflow"
 export NGPS_WORK_ROOT="$HOME/ngps_data/work"
 export DATE=20260623
 export NIGHT="$NGPS_WORK_ROOT/$DATE"
+cd "$WORKFLOW_ROOT"
 ```
 
-1. Copy raw FITS files into `$NIGHT/raw/`. Do not modify or split them.
+Copy unchanged raw FITS files into the work folder:
 
-   ```bash
-   mkdir -p "$NIGHT/raw"
-   rsync -av "/PATH/TO/RAW/FILES/"*.fits "$NIGHT/raw/"
-   ```
+```bash
+mkdir -p "$NIGHT/raw"
+rsync -av "/PATH/TO/RAW/FILES/"*.fits "$NIGHT/raw/"
+```
 
-2. Reduce every valid channel/setup and save an automatic extraction-review PDF
-   for every science exposure in the entire night. This does not pause for decisions.
-   `--auto` overwrites the existing automatic reduction products and refreshes
-   the review PDFs. If you omit `--auto`, a dashboard opens
-   for each exposure so you can review and change the automatic settings.
+Reduce every valid configuration and review each science exposure in its
+interactive extraction window:
 
-   ```bash
-   python scripts/ngps_reduce_all_configs.py "$DATE" --auto
-   ```
+```bash
+python scripts/ngps_reduce_all_configs.py "$DATE"
+```
 
-   The PDFs to inspect are in `$NIGHT/ExtractionQA/<target>/` (for this night:
-   `~/ngps_data/work/20260623/ExtractionQA/`). On macOS, open that folder with:
+Use **Accept automatic** when the trace is correct. Otherwise use **Manual
+extraction + refit**, click the desired trace, and choose **Accept manual**.
+The review PDFs are saved in `$NIGHT/ExtractionQA/<target>/`.
 
-   ```bash
-   open "$NIGHT/ExtractionQA"
-   ```
+`--auto` skips all extraction windows and saves automatic-review PDFs only. It
+is for trusted non-interactive reprocessing, not the normal student workflow.
 
-   These PDFs are derived science-review products. Each one has four
-   central-slicer U/G/R/I 2D panels, coloured spatial profiles, and a quick-look 1D
-   panel. The central-slicer panels are for choosing the target position. A manual
-   choice is mapped to the corresponding position in all three slicers for extraction.
+To revisit one exposure:
 
-3. To revise one already-reduced target whose automatic PDF does not look
-   right, open the same dashboard interactively. This is a **single-target,
-   single-exposure review command**.
-   
-   The **Manual extraction + refit** button enables a click in a central-slicer
-   channel panel and links the position across U/G/R/I. The selected relative
-   position is mapped into all three slicers and each slicer is traced again
-   from that position. The cyan curve previews the new central-slicer trace.
-
-   The **Adjust this channel only** button makes the next click refit only the
-   selected channel. The other channels retain their existing products. The
-   saved PDF is replaced with your marked version.
-   A manual click refits the trace and its FWHM. The final PypeIt reduction
-   independently measures the selected source's width in every channel and slicer.
-
-   The **Accept Manual** and **Accept Automatic** buttons run an isolated
-   one-exposure PypeIt setup. They replace only that exposure's derived
-   `spec1d/spec2d` products (images and files) in the baseline setup.
-
-   The **Return to automatic** button clears the manual aperture and restores the original
-   profile and quick-look plots.
-
-   The **Cancel** button, or closing the window, leaves the existing PDF and all PypeIt
-   products unchanged.
-
-   The **Re-norm U/G/R/I** buttons set the quick-look y-range from one channel only. This is
-   a display aid and does not change the detector counts or extracted spectrum.
-
-   **Contrast −** and **Contrast +** expand or tighten the colour range in all four 2D panels.
-   **Linear** restores the default view. **Log** uses a signed logarithmic display, so negative
-   sky-subtraction residuals remain visible. These buttons change only the display.
-
-   For example, the reviewed PDF for `MGC+04-48-002`, exposure 0121, is saved as
-   `~/ngps_data/work/20260623/ExtractionQA/MGC_04-48-002/ngps_extraction_review_0121.pdf`.
-
-   ```bash
-   python scripts/ngps_manual_target_extractions.py "$DATE" --target 'MGC+04-48-002' --exposure 0121
-   ```
-
-   Example extraction-review window:
-
-   ![Extraction review example](docs/images/extraction-review-example.png)
-
-   Alternatively, omit `--auto` during reduction to open the dashboard for each
-   source as soon as the reductions finish:
+```bash
+python scripts/ngps_manual_target_extractions.py "$DATE" --target 'MGC+04-48-002' --exposure 0121
+```
 
-   ```bash
-   python scripts/ngps_reduce_all_configs.py "$DATE"
-   ```
+## Flux calibration
 
-   If you accept automatic or manual re-extraction after flux calibration,
-   repeat step 4 before coadding.
-
-4. Flux-calibrate the 1D products.
-
-   Build `science_standard_inventory.csv` from the reduced frames.
-
-   ```bash
-   python scripts/ngps_inventory_standards.py "$DATE"
-   ```
+Build and inspect the science/standard inventory:
 
-   Create or display `science_standard_associations.csv`. Each row is one
-   consecutive group of science exposures with one assigned standard. No
-   spectra are changed.
+```bash
+python scripts/ngps_inventory_standards.py "$DATE"
+python scripts/ngps_flux_calibrate.py "$DATE"
+```
 
-   ```bash
-   python scripts/ngps_flux_calibrate.py "$DATE"
-   ```
+Review `$NIGHT/science_standard_associations.csv`, then create sensitivity
+functions and flux-calibrated copies:
 
-   Create the selected sensitivity functions and flux-calibrate copies in
-   `Fluxed/`.
+```bash
+python scripts/ngps_flux_calibrate.py "$DATE" --run
+python scripts/ngps_audit_flux.py "$DATE"
+```
 
-   ```bash
-   python scripts/ngps_flux_calibrate.py "$DATE" --run
-   ```
+Unsafe standard-star associations remain unfluxed and are excluded from
+coaddition. Read `$NIGHT/sensitivity_review.csv` before overriding an
+association.
 
-   Check that every safe science file has calibrated `FLAM` values. This also
-   reports groups skipped because no validated standard is available.
+## Coadd repeat observations
 
-   ```bash
-   python scripts/ngps_audit_flux.py "$DATE"
-   ```
+Create and inspect the proposed groups:
 
-   Review `$NIGHT/science_standard_associations.csv` before `--run`. The
-   automatic proposal assigns one standard to every consecutive exposure of a
-   target within each channel and setup. If you prefer another standard, edit
-   `standard_filename` in that group row, rerun the dry run to confirm the
-   plan, then run the single-line `--run` command above. To discard edits and
-   create a new proposal, run `python scripts/ngps_flux_calibrate.py "$DATE" --reset-associations`.
+```bash
+python scripts/ngps_interactive_coadd.py "$DATE" --list-groups
+```
 
-   If a selected standard fails or has an invalid sensitivity function, the run
-   finds the nearest validated standard and writes it as an `automatic fallback`.
-   It records the fallback and continues automatically. If no validated standard
-   exists, it stops that group from being flux-calibrated, moves any old copy to
-   `Fluxed_invalid_standard/`, and calibrates the remaining safe groups. The
-   terminal identifies the target, channel, and setup. That configuration keeps
-   only its reduced counts-level products and has no Fluxed product or coadd.
+Review `$NIGHT/coadd_review.csv`, discard unsuitable observations, then
+automatically coadd every remaining safe group:
 
-   During `--run`, every available standard in a channel/setup is compared with
-   its known PypeIt reference spectrum. A missing, non-finite, or discrepant
-   standard is rejected. If the remaining standard responses disagree by more
-   than 1 mag across their central response, that channel/setup is stopped for
-   review. Read `$NIGHT/sensitivity_review.csv` before changing an association.
+```bash
+python scripts/ngps_interactive_coadd.py "$DATE" --all --auto
+```
 
-5. Find repeated observations by target name, then review and coadd them.
+Review PDFs are in `$NIGHT/CoaddQA/<target>/`. Coadded FITS files are in
+`$NIGHT/Coadds/<target_channel_setup>/`. For an interactive review of one
+target:
 
-   This creates `$NIGHT/coadd_review.csv` and prints the reviewable coadds.
-   Each row is one target, channel, and setup. Single exposures and groups
-   without Fluxed spectra are automatically marked `discard`. Add a note or
-   change `status` to `discard` for any observation-log problem before review.
+```bash
+python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002'
+```
 
-   ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --list-groups
-   ```
+## Telluric correction and final plots
 
-   After reviewing `coadd_review.csv`, automatically write and run every
-   reviewable coadd. This saves one automatic review PDF per coadd. Existing
-   coadd selections and final coadded FITS files are replaced. Review PDFs are saved in
-   `$NIGHT/CoaddQA/<target>/`. For example, the R-channel B-setup PDF for
-   `MGC+04-48-002` is
-   `~/ngps_data/work/20260623/CoaddQA/MGC_04-48-002/MGC_04-48-002_r_p200_ngps_r_B_coadd_review.pdf`.
+Install the atmospheric model once:
 
-   ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --all --auto
-   ```
+```bash
+pypeit_install_telluric TellPCA_3000_26000_R10000.fits
+```
 
-   At the end, a final coadd report lists every completed FITS file with its
-   full location, plus any failed or skipped coadds. The same record is saved
-   as `$NIGHT/coadd_run_summary.csv`. Audit the complete night later with:
+Inspect and run the R/I telluric corrections:
 
-   ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --audit --all
-   ```
+```bash
+python scripts/ngps_telluric_correct.py "$DATE" --all
+python scripts/ngps_telluric_correct.py "$DATE" --all --run
+```
 
-   This writes `$NIGHT/coadd_audit.csv` and lists completed final spectra,
-   missing outputs, and discarded groups. Audit one target only with:
+U and G are not telluric-corrected. Corrected R/I spectra and their QA PDFs
+are saved under `$NIGHT/Telluric/<target>/` and `$NIGHT/TelluricQA/<target>/`.
 
-   ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --audit --target 'MGC+04-48-002'
-   ```
+Make the final plots:
 
-   This writes `$NIGHT/coadd_audit_MGC_04-48-002.csv`.
+```bash
+python scripts/ngps_plot_final_spectra.py "$DATE" --all --noUGedges
+```
 
-   To open the review window for every reviewable group, one after another:
+For one target, this saves the files and opens a plot window:
 
-   ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --all
-   ```
+```bash
+python scripts/ngps_plot_final_spectra.py "$DATE" --target 'MGC+04-48-002'
+```
 
-   The window has one panel per repeat exposure (e.g. 0121, 0122, 0123). Each
-   panel contains that exposure’s three NGPS slicer traces. The selection
-   buttons include or exclude one whole exposure, keeping its three traces
-   together. The **Accept selection** button saves a review PDF, replaces that
-   group's selection, and runs its PypeIt coadd. The **Cancel** button, or
-   closing the window, writes no selection or coadd product.
+Final PDF and PNG files are in `$NIGHT/FinalQA/<target>/`. The output keeps
+U/G/R/I separate and does not merge channels or alter the FITS data.
 
-   Example coadd-review window:
+## Maintenance
 
-   ![Coadd review example](docs/images/coadd-review-example.png)
-
-   To work with one target only, open its review window:
-
-   ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002'
-   ```
-
-   After `--all --auto`, use this same command to recheck one target. The
-   **Accept selection** button overwrites only that target, channel, and
-   setup's review PDF, coadd selection, and final coadded FITS file. Its review PDF is in
-   `$NIGHT/CoaddQA/<target>/`, for example
-   `~/ngps_data/work/20260623/CoaddQA/MGC_04-48-002/MGC_04-48-002_r_p200_ngps_r_B_coadd_review.pdf`.
-
-   To accept one target’s automatic selection without opening its window:
-
-   ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --auto
-   ```
-
-   This writes or replaces the selected coadd files and runs PypeIt immediately.
-
-   To preselect observations for one target:
-
-   ```bash
-   python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002' --channel r --setup p200_ngps_r_B --exposure 0121 --exposure 0123
-   ```
-
-6. Telluric-correct completed R and I coadds. This leaves the source coadds
-   unchanged and creates separate corrected spectra, fitted atmospheric models,
-   and QA PDFs. The first command prints the plan only.
-
-   ```bash
-   python scripts/ngps_telluric_correct.py "$DATE" --all
-   ```
-
-   Install PypeIt's compact atmospheric PCA model once before the first run.
-
-   ```bash
-   pypeit_install_telluric TellPCA_3000_26000_R10000.fits
-   ```
-
-   Run the planned corrections.
-
-   ```bash
-   python scripts/ngps_telluric_correct.py "$DATE" --all --run
-   ```
-
-   Products are in `$NIGHT/Telluric/<target>/` and QA PDFs are in
-   `$NIGHT/TelluricQA/<target>/`. Review `$NIGHT/telluric_review.csv`. A failed
-   result is not used for final plotting. Re-running after a coadd replaces only
-   the separate telluric products.
-
-   To run one target only:
-
-   ```bash
-   python scripts/ngps_telluric_correct.py "$DATE" --target 'MGC+04-48-002' --run
-   ```
-
-7. Save the final U/G/R/I plots for every target and configuration with at
-   least one completed channel coadd.
-   This does not open graphic windows. The terminal lists every saved plot and
-   reports any channel coadd that cannot be plotted.
-
-   ```bash
-   python scripts/ngps_plot_final_spectra.py "$DATE" --all
-   ```
-
-   To save one target and open its graphic window, use:
-
-   ```bash
-   python scripts/ngps_plot_final_spectra.py "$DATE" --target 'MGC+04-48-002'
-   ```
-
-   Close the window when you are finished zooming or panning. The figure has one
-   flux-versus-wavelength panel per channel. The coloured curve is an
-   inverse-variance rebin of two adjacent valid pixels. The native pixels remain
-   visible in light grey. It does not merge U/G/R/I or alter the FITS spectra.
-   It uses validated telluric-corrected R/I products when they exist, otherwise it
-   uses the flux-calibrated coadd. Each y-axis includes every valid flux sample.
-   It saves a PDF and PNG in `$NIGHT/FinalQA/MGC_04-48-002/`, for example
-   `~/ngps_data/work/20260623/FinalQA/MGC_04-48-002/MGC_04-48-002_UGRI_B_coadds.pdf`.
-
-   Use a different display-only bin size when needed. For example, use four
-   native pixels per coloured point:
-
-   ```bash
-   python scripts/ngps_plot_final_spectra.py "$DATE" --all --rebin 4
-   ```
-
-   A channel without a completed flux-calibrated coadd is shown as an empty white
-   panel. If a target has more than one configuration, choose one explicitly:
-
-   ```bash
-   python scripts/ngps_plot_final_spectra.py "$DATE" --target 'NGC4102' --configuration C
-   ```
-
-   To omit the unreliable U/G wavelength edges from the display, plot U only
-   from 3100–4350 Å and G from 4280 Å onward. This does not modify any FITS
-   spectrum. This can be useful because U and G are often noisier at those
-   wavelength edges.
-
-   ```bash
-   python scripts/ngps_plot_final_spectra.py "$DATE" --all --noUGedges
-   ```
-
-   Example final plot for MGC+04-48-002. It uses U from 3100–4350 Å, G from
-   4280 Å onward, and telluric-corrected R and I coadds.
-
-   ![Final U/G/R/I coadd example](docs/images/final-spectrum-example.png)
-
-   For custom display windows, use `--manual` and provide one or more channel
-   ranges in Å. This also changes only the plots.
-
-   ```bash
-   python scripts/ngps_plot_final_spectra.py "$DATE" --all --manual --U 3100 4350 --G 4280 5900 --R 5800 8050 --I 7500 10450
-   ```
-
-## Planned extensions
-
-- U/G/R/I merging
-
-For the fuller guide, including background and troubleshooting, see
-[NGPS_REDUCTION_GUIDE.md](docs/NGPS_REDUCTION_GUIDE.md).
+Do not update the pinned software during an active science reduction. For a
+future update, follow [docs/MAINTENANCE.md](docs/MAINTENANCE.md) and validate
+the change on test data first.
