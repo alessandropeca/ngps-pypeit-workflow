@@ -1,4 +1,4 @@
-# Change this file only through docs/MAINTENANCE.md.
+# Change this file only after validating the update on test data.
 schema: 1
 validated:
   label: "NGPS 2026-06-23 baseline"
@@ -20,4 +20,3 @@ upstreams:
     license: "BSD-3-Clause"
 python:
   version: "3.11"
-

@@ -166,9 +166,3 @@ U/G/R/I separate and does not merge channels or alter the FITS data.
 Example final U/G/R/I plot:
 
 ![Final U/G/R/I coadds](docs/images/final-spectrum-example.png)
-
-## Maintenance
-
-Do not update the pinned software during an active science reduction. For a
-future update, follow [docs/MAINTENANCE.md](docs/MAINTENANCE.md) and validate
-the change on test data first.

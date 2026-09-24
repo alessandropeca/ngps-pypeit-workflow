@@ -347,6 +347,5 @@ coadd. Read sensitivity_review.csv and ask the supervisor.
 6. If a target has only one exposure, it is not a repeat-exposure coadd group.
 Its flux-calibrated extracted spectrum remains a valid single-exposure
 product, but it should be labelled accordingly.
-7. Keep the pinned installation. To update software later, follow the
-repository's docs/MAINTENANCE.md and validate on test data before using a
-new version for science.
+7. Keep the pinned installation. Validate any future software update on test
+data before using it for science.
