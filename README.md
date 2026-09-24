@@ -69,6 +69,10 @@ Use **Accept automatic** when the trace is correct. Otherwise use **Manual
 extraction + refit**, click the desired trace, and choose **Accept manual**.
 The review PDFs are saved in `$NIGHT/ExtractionQA/<target>/`.
 
+Example extraction-review window:
+
+![Extraction review: four central-slicer 2D panels, spatial profiles, and quick-look spectra](docs/images/extraction-review-example.png)
+
 `--auto` skips all extraction windows and saves automatic-review PDFs only. It
 is for trusted non-interactive reprocessing, not the normal student workflow.
 
@@ -122,6 +126,10 @@ target:
 python scripts/ngps_interactive_coadd.py "$DATE" --target 'MGC+04-48-002'
 ```
 
+Example coadd-review window:
+
+![Coadd review: select repeat exposures before coadding](docs/images/coadd-review-example.png)
+
 ## Telluric correction and final plots
 
 Install the atmospheric model once:
@@ -154,6 +162,10 @@ python scripts/ngps_plot_final_spectra.py "$DATE" --target 'MGC+04-48-002'
 
 Final PDF and PNG files are in `$NIGHT/FinalQA/<target>/`. The output keeps
 U/G/R/I separate and does not merge channels or alter the FITS data.
+
+Example final U/G/R/I plot:
+
+![Final U/G/R/I coadds](docs/images/final-spectrum-example.png)
 
 ## Maintenance
 
