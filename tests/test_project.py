@@ -58,6 +58,26 @@ def test_manual_trace_refit_patch_and_target_config():
     assert "trace_maxshift = 3.0" in text
 
 
+def test_target_copy_absolutizes_a_relative_raw_data_path():
+    source = ROOT / "scripts" / "ngps_interactive_extract.py"
+    spec = importlib.util.spec_from_file_location("ngps_interactive_extract_paths", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        setup = root / "setup"
+        copied = root / "target-run" / "target.pypeit"
+        setup.mkdir()
+        copied.parent.mkdir()
+        copied.write_text("data read\n path ../raw\ndata end\n")
+        module.absolutize_data_path(copied, setup)
+
+        assert f"path {(root / 'raw').resolve()}" in copied.read_text()
+
+
 def test_manual_selection_can_be_linked_or_channel_only():
     source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
     spec = importlib.util.spec_from_file_location("ngps_manual_target_extractions", source)

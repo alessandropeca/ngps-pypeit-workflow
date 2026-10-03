@@ -378,6 +378,31 @@ def enable_manual_trace_refit(destination: Path) -> None:
     destination.write_text("\n".join(lines) + "\n")
 
 
+def absolutize_data_path(pypeit_file: Path, source_directory: Path) -> None:
+    """Keep relocated one-exposure PypeIt files connected to their raw data.
+
+    A target-only setup lives below the original setup directory.  A relative
+    ``path`` line in its copied PypeIt file would otherwise be interpreted from
+    that new directory, causing PypeIt to find no raw frames.
+    """
+    output: list[str] = []
+    in_data = False
+    for line in pypeit_file.read_text().splitlines():
+        stripped = line.strip()
+        if stripped == "data read":
+            in_data = True
+        elif stripped == "data end":
+            in_data = False
+        if in_data and stripped.startswith("path "):
+            raw_path = Path(stripped.split(None, 1)[1]).expanduser()
+            if not raw_path.is_absolute():
+                raw_path = (source_directory / raw_path).resolve()
+            indent = line[:len(line) - len(line.lstrip())]
+            line = f"{indent}path {raw_path}"
+        output.append(line)
+    pypeit_file.write_text("\n".join(output) + "\n")
+
+
 def create_target_copy(
     source_pypeit: Path, exposure: str, selections: list[Selection] | None = None,
     refit_manual_trace: bool = False,
@@ -398,6 +423,7 @@ def create_target_copy(
     )
     copied = run_dir / source_pypeit.name
     destination = run_dir / f"{source_pypeit.stem}_{mode}_{exposure}.pypeit"
+    absolutize_data_path(copied, source_pypeit.parent)
     write_target_pypeit(
         copied, destination, exposure,
         manual_value(selections) if selections is not None else None,
