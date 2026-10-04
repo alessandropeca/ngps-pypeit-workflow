@@ -378,12 +378,16 @@ def enable_manual_trace_refit(destination: Path) -> None:
     destination.write_text("\n".join(lines) + "\n")
 
 
-def absolutize_data_path(pypeit_file: Path, source_directory: Path) -> None:
+def absolutize_data_path(
+    pypeit_file: Path, source_directory: Path, raw_directory: Path | None = None,
+) -> None:
     """Keep relocated one-exposure PypeIt files connected to their raw data.
 
     A target-only setup lives below the original setup directory.  A relative
     ``path`` line in its copied PypeIt file would otherwise be interpreted from
-    that new directory, causing PypeIt to find no raw frames.
+    that new directory, causing PypeIt to find no raw frames.  When the
+    workflow's night ``raw/`` directory is known, it takes precedence over a
+    stale path written by an older PypeIt setup.
     """
     output: list[str] = []
     in_data = False
@@ -394,9 +398,12 @@ def absolutize_data_path(pypeit_file: Path, source_directory: Path) -> None:
         elif stripped == "data end":
             in_data = False
         if in_data and stripped.startswith("path "):
-            raw_path = Path(stripped.split(None, 1)[1]).expanduser()
-            if not raw_path.is_absolute():
-                raw_path = (source_directory / raw_path).resolve()
+            if raw_directory is not None:
+                raw_path = raw_directory.expanduser().resolve()
+            else:
+                raw_path = Path(stripped.split(None, 1)[1]).expanduser()
+                if not raw_path.is_absolute():
+                    raw_path = (source_directory / raw_path).resolve()
             indent = line[:len(line) - len(line.lstrip())]
             line = f"{indent}path {raw_path}"
         output.append(line)
@@ -423,7 +430,11 @@ def create_target_copy(
     )
     copied = run_dir / source_pypeit.name
     destination = run_dir / f"{source_pypeit.stem}_{mode}_{exposure}.pypeit"
-    absolutize_data_path(copied, source_pypeit.parent)
+    workflow_raw = setup_dir.parent.parent / "raw"
+    absolutize_data_path(
+        copied, source_pypeit.parent,
+        workflow_raw if workflow_raw.is_dir() else None,
+    )
     write_target_pypeit(
         copied, destination, exposure,
         manual_value(selections) if selections is not None else None,

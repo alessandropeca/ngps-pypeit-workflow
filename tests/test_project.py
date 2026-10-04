@@ -78,6 +78,26 @@ def test_target_copy_absolutizes_a_relative_raw_data_path():
         assert f"path {(root / 'raw').resolve()}" in copied.read_text()
 
 
+def test_target_copy_prefers_the_known_workflow_raw_directory():
+    source = ROOT / "scripts" / "ngps_interactive_extract.py"
+    spec = importlib.util.spec_from_file_location("ngps_interactive_extract_raw", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        copied = root / "target-run" / "target.pypeit"
+        raw = root / "night" / "raw"
+        copied.parent.mkdir()
+        raw.mkdir(parents=True)
+        copied.write_text("data read\n path /obsolete/raw\ndata end\n")
+        module.absolutize_data_path(copied, root, raw)
+
+        assert f"path {raw.resolve()}" in copied.read_text()
+
+
 def test_manual_selection_can_be_linked_or_channel_only():
     source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
     spec = importlib.util.spec_from_file_location("ngps_manual_target_extractions", source)
