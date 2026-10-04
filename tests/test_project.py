@@ -98,6 +98,55 @@ def test_target_copy_prefers_the_known_workflow_raw_directory():
         assert f"path {raw.resolve()}" in copied.read_text()
 
 
+def test_target_copy_relocates_reused_slit_calibration_and_flexure_qa(tmp_path):
+    import numpy as np
+    from pypeit.slittrace import SlitTraceSet
+    from pypeit import qa
+
+    source = ROOT / "scripts" / "ngps_interactive_extract.py"
+    spec = importlib.util.spec_from_file_location("ngps_interactive_extract_relocation", source)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    night = tmp_path / "night"
+    setup = night / "manual_setup_g" / "p200_ngps_g_B"
+    calibration_dir = setup / "Calibrations"
+    calibration_dir.mkdir(parents=True)
+    (night / "raw").mkdir()
+    slits = SlitTraceSet(
+        np.full((10, 1), 2.0), np.full((10, 1), 8.0),
+        "MultiSlit", nspat=12, PYP_SPEC="p200_ngps_g",
+    )
+    slits.set_paths(calibration_dir, "B", "1", "DET01")
+    original = calibration_dir / "Slits_B_1_DET01.fits.gz"
+    slits.to_file(original)
+    original_bytes = original.read_bytes()
+    pypeit_file = setup / "p200_ngps_g_B.pypeit"
+    pypeit_file.write_text(
+        "data read\n path /obsolete/raw\nfilename | frametype\n"
+        "ngps_260623_0134.fits | science\n"
+        "ngps_260623_0135.fits | science\ndata end\n"
+    )
+
+    # Both automatic and manual reruns reuse the relocated calibration files.
+    for selections in (None, [module.Selection(5.0, 5.0, 3.0)]):
+        run_dir, target = module.create_target_copy(pypeit_file, "0134", selections)
+        reused = SlitTraceSet.from_file(run_dir / "Calibrations" / original.name)
+        assert Path(reused.calib_dir) == run_dir / "Calibrations"
+        np.testing.assert_array_equal(reused.left_init, slits.left_init)
+        np.testing.assert_array_equal(reused.right_init, slits.right_init)
+        qa_file = Path(qa.set_qa_filename(
+            "ngps_260623_0097_DET01", "spat_flexure_qa_corr",
+            out_dir=str(Path(reused.calib_dir).parent),
+        ))
+        assert qa_file.parent == run_dir / "QA" / "PNGs"
+        assert qa_file.parent.is_dir()
+        assert "0135" not in target.read_text()
+        assert str(night / "raw") in target.read_text()
+    assert original.read_bytes() == original_bytes
+
+
 def test_manual_selection_can_be_linked_or_channel_only():
     source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
     spec = importlib.util.spec_from_file_location("ngps_manual_target_extractions", source)

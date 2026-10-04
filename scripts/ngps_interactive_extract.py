@@ -410,6 +410,24 @@ def absolutize_data_path(
     pypeit_file.write_text("\n".join(output) + "\n")
 
 
+def relocate_copied_calibrations(run_dir: Path) -> None:
+    """Update output metadata only in the isolated run's calibration copies.
+
+    PypeIt restores ``calib_dir`` from FITS CALIBDIR cards when reusing
+    calibrations.  In particular, spatial-flexure QA follows the restored
+    slit/edge calibration directory rather than the CLI redux_path.
+    """
+    for product in sorted(run_dir.rglob("*")):
+        if not product.is_file() or not product.name.endswith((".fits", ".fits.gz")):
+            continue
+        with fits.open(product, mode="update", memmap=False) as hdul:
+            for hdu in hdul:
+                if "CALIBDIR" in hdu.header:
+                    hdu.header["CALIBDIR"] = str(product.parent.resolve())
+    # PypeIt's spatial-flexure QA uses QA/PNGs relative to CALIBDIR's parent.
+    (run_dir / "QA" / "PNGs").mkdir(parents=True, exist_ok=True)
+
+
 def create_target_copy(
     source_pypeit: Path, exposure: str, selections: list[Selection] | None = None,
     refit_manual_trace: bool = False,
@@ -428,6 +446,7 @@ def create_target_copy(
             ".ngps_target_runs", "*.log", "*.pdf", "*.png",
         ),
     )
+    relocate_copied_calibrations(run_dir)
     copied = run_dir / source_pypeit.name
     destination = run_dir / f"{source_pypeit.stem}_{mode}_{exposure}.pypeit"
     workflow_raw = setup_dir.parent.parent / "raw"
