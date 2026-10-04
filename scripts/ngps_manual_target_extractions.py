@@ -741,7 +741,14 @@ def rerun_selected_exposure(
             print(f"ERROR: could not create one-exposure setup: {error}")
             return 1
         runner = Path(sys.executable).with_name("run_pypeit")
-        command = [str(runner) if runner.is_file() else "run_pypeit", target_pypeit.name]
+        # The original setup can retain an obsolete ``redux_path`` from an
+        # earlier machine or work-root location.  Override it for this isolated
+        # rerun so PypeIt's Science and QA products stay inside ``run_dir``.
+        command = [
+            str(runner) if runner.is_file() else "run_pypeit",
+            target_pypeit.name,
+            "--redux_path", str(run_dir),
+        ]
         log = source.parents[2] / "logs" / (
             f"rerun_{channel}_{source.parent.name}_{frame.exposure}.log"
         )
