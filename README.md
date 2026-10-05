@@ -82,6 +82,21 @@ To revisit one exposure:
 python scripts/ngps_manual_target_extractions.py "$DATE" --target 'MGC+04-48-002' --exposure 0121
 ```
 
+To continue reviewing an already reduced night, skip completed exposures:
+
+```bash
+python scripts/ngps_manual_target_extractions.py "$DATE" --all --exclude 0134 0135
+```
+
+Or exclude a whole source by its exact name:
+
+```bash
+python scripts/ngps_manual_target_extractions.py "$DATE" --all --exclude '2masxj202837'
+```
+
+You can mix exposure numbers and target names. Excluded spectra and PDFs are
+kept. Names are case-insensitive.
+
 ## Flux calibration
 
 Build and inspect the science/standard inventory:

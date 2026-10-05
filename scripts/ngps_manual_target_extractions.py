@@ -90,6 +90,23 @@ def group_frames(frames: list[Frame]) -> dict[tuple[str, str], dict[str, Frame]]
     return groups
 
 
+def exclude_frames(frames: list[Frame], exclusions: list[str]) -> list[Frame]:
+    """Skip whole exposures or exact target names across their channels."""
+    excluded_keys: set[tuple[str, str]] = set()
+    for value in exclusions:
+        key = value.strip().casefold()
+        matches = [frame for frame in frames
+                   if frame.exposure == key or frame.target.casefold() == key]
+        if not matches:
+            raise ValueError(
+                f"--exclude {value!r} matched no selected exposure or target. "
+                "Use a four-digit exposure number or an exact target name."
+            )
+        excluded_keys.update((frame.target.casefold(), frame.exposure) for frame in matches)
+    return [frame for frame in frames
+            if (frame.target.casefold(), frame.exposure) not in excluded_keys]
+
+
 def frame_arrays(frame: Frame) -> tuple[np.ndarray, np.ndarray, list[tuple[int, np.ndarray, np.ndarray]], list[tuple[str, np.ndarray, np.ndarray]]]:
     with fits.open(frame.spec2d, memmap=False) as hdul:
         image = np.asarray(hdul["DET01-SCIIMG"].data, dtype=float) - np.asarray(hdul["DET01-SKYMODEL"].data, dtype=float)
@@ -782,8 +799,13 @@ def main() -> int:
     parser.add_argument("--target", help="Target name from the science inventory")
     parser.add_argument("--channel", choices=CHANNELS, help="Optional channel filter")
     parser.add_argument("--exposure", help="Review one four-digit exposure, e.g. 0121")
+    parser.add_argument(
+        "--exclude", nargs="+", action="extend", default=[], metavar="EXPOSURE_OR_TARGET",
+        help="Skip four-digit exposures or exact target names (case-insensitive). "
+             "Accepts multiple values and may be repeated. Excluded products are kept.",
+    )
     parser.add_argument("--auto", action="store_true", help="Save PDFs only; do not open review windows")
-    parser.add_argument("--all", action="store_true", help="Internal: review every reduced exposure (used by ngps_reduce_all_configs.py)")
+    parser.add_argument("--all", action="store_true", help="Review every reduced exposure, except any --exclude values")
     args = parser.parse_args()
     if not args.target and not args.all:
         parser.error("provide --target, or use --all")
@@ -799,9 +821,19 @@ def main() -> int:
         frames = [frame for frame in frames if frame.channel == args.channel]
     if args.exposure:
         frames = [frame for frame in frames if frame.exposure == args.exposure]
+    if not frames:
+        parser.error("No reduced science spec2d files matched")
+    if args.exclude:
+        original_count = len(group_frames(frames))
+        try:
+            frames = exclude_frames(frames, args.exclude)
+        except ValueError as error:
+            parser.error(str(error))
+        print(f"Excluded {original_count - len(group_frames(frames))} exposure(s). Existing products kept.")
     groups = group_frames(frames)
     if not groups:
-        parser.error("No reduced science spec2d files matched")
+        print("All matching exposures were excluded. Nothing to review.")
+        return 0
     ordered_groups = sorted(groups)
     for index, group_key in enumerate(ordered_groups, start=1):
         _, exposure = group_key

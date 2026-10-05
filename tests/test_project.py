@@ -165,6 +165,52 @@ def test_manual_selection_can_be_linked_or_channel_only():
     assert selected == {"u": -3.0, "g": -3.0, "r": -3.0, "i": -3.0}
 
 
+def test_review_cli_excludes_exposures_and_sources_before_opening_windows(tmp_path):
+    source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
+    spec = importlib.util.spec_from_file_location("ngps_manual_target_extractions_exclusions", source)
+    module = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    observations = [("2masxj202837", "0134"), ("2masxj202837", "0135"),
+                    ("MGC+04-48-002", "0121"), ("MGC+04-48-002", "0122")]
+    frames = []
+    for target, exposure in observations:
+        for channel in ("u", "g", "r", "i"):
+            product = tmp_path / f"{target}_{exposure}_{channel}.fits"
+            product.write_bytes(b"existing spectrum")
+            frames.append(module.Frame(channel, target, exposure, product))
+    cases = [
+        (["--exclude", "0134", "0135"], observations[2:]),
+        (["--exclude", "2MASXJ202837"], observations[2:]),
+        (["--exclude", "0134", "--exclude", "MGC+04-48-002"], [observations[1]]),
+        (["--exclude", "2masxj202837", "MGC+04-48-002"], []),
+    ]
+    for options, expected in cases:
+        with patch.object(sys, "argv", [str(source), "20260623", "--all", *options]), \
+             patch.dict(os.environ, {"NGPS_WORK_ROOT": str(tmp_path)}), \
+             patch.object(module, "discover_frames", return_value=frames), \
+             patch.object(module, "review_group", return_value=("cancel", {})) as review, \
+             patch.object(module, "rerun_selected_exposure") as rerun:
+            assert module.main() == 0
+            assert [(call.args[1], call.args[2]) for call in review.call_args_list] == expected
+            assert all(set(call.args[3]) == {"u", "g", "r", "i"}
+                       for call in review.call_args_list)
+            rerun.assert_not_called()
+        assert all(frame.spec2d.read_bytes() == b"existing spectrum" for frame in frames)
+
+    with patch.object(sys, "argv", [str(source), "20260623", "--all", "--exclude", "typo"]), \
+         patch.object(module, "discover_frames", return_value=frames), \
+         patch.object(module, "review_group") as review:
+        try:
+            module.main()
+        except SystemExit as error:
+            assert error.code == 2
+        else:
+            raise AssertionError("An unmatched exclusion must stop the command")
+        review.assert_not_called()
+
+
 def test_discover_frames_falls_back_to_a_target_run(tmp_path):
     source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
     spec = importlib.util.spec_from_file_location("ngps_manual_target_extractions_discovery", source)

@@ -161,6 +161,25 @@ Example:
 python scripts/ngps_manual_target_extractions.py "$DATE" --target 'MGC+04-48-002' --exposure 0121
 ```
 
+To review an already reduced night without repeating the initial reductions,
+use `--all`. Skip completed exposures with `--exclude`:
+
+```bash
+cd "$WORKFLOW_ROOT"
+python scripts/ngps_manual_target_extractions.py "$DATE" --all --exclude 0134 0135
+```
+
+To skip an entire source, give its exact target name instead:
+
+```bash
+python scripts/ngps_manual_target_extractions.py "$DATE" --all --exclude '2masxj202837'
+```
+
+Mix exposure numbers and target names as needed, for example
+`--exclude 0134 'MGC+04-48-002'`. Target names are case-insensitive. Excluded
+exposures keep all existing spectra and PDFs. A value that matches no selected
+exposure or target stops the command so you can correct it.
+
 Buttons in the window:
 
 Accept automatic
