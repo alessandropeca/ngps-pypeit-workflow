@@ -190,12 +190,14 @@ def test_review_cli_excludes_exposures_and_sources_before_opening_windows(tmp_pa
         with patch.object(sys, "argv", [str(source), "20260623", "--all", *options]), \
              patch.dict(os.environ, {"NGPS_WORK_ROOT": str(tmp_path)}), \
              patch.object(module, "discover_frames", return_value=frames), \
-             patch.object(module, "review_group", return_value=("cancel", {})) as review, \
+             patch.object(module.subprocess, "run") as child, \
+             patch.object(module, "review_group") as review, \
              patch.object(module, "rerun_selected_exposure") as rerun:
+            child.return_value.returncode = 0
             assert module.main() == 0
-            assert [(call.args[1], call.args[2]) for call in review.call_args_list] == expected
-            assert all(set(call.args[3]) == {"u", "g", "r", "i"}
-                       for call in review.call_args_list)
+            assert [(call.args[0][4], call.args[0][6]) for call in child.call_args_list] == expected
+            assert all("--all" not in call.args[0] for call in child.call_args_list)
+            review.assert_not_called()
             rerun.assert_not_called()
         assert all(frame.spec2d.read_bytes() == b"existing spectrum" for frame in frames)
 
@@ -223,9 +225,101 @@ def test_discover_frames_falls_back_to_a_target_run(tmp_path):
                / "p200_ngps_r_C_manual_0106" / "Science")
     science.mkdir(parents=True)
     (science / "spec2d_ngps_260727_0106-target_NGPS_r_20260727T045817.156.fits").touch()
+    setup = science.parents[2]
+    (setup / f"{setup.name}.pypeit").write_text(
+        "data read\nfilename | frametype\nngps_260727_0106.fits | science\ndata end\n"
+    )
     frames = module.discover_frames(tmp_path)
     assert len(frames) == 1
     assert frames[0].channel == "r"
+
+
+def test_review_discovery_skips_standards_and_unclassified_frames(tmp_path):
+    source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
+    spec = importlib.util.spec_from_file_location("ngps_review_science_only", source)
+    module = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(ROOT / "scripts"))
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    for channel in ("u", "g", "r", "i"):
+        setup = tmp_path / f"manual_setup_{channel}" / f"p200_ngps_{channel}_B"
+        baseline = setup / "Science"
+        fallback = setup / ".ngps_target_runs" / "saved" / "Science"
+        baseline.mkdir(parents=True)
+        fallback.mkdir(parents=True)
+        # Test reordered columns, a commented science row, and a mixed type.
+        (setup / f"{setup.name}.pypeit").write_text(
+            "data read\ntarget | frametype | filename\n"
+            "hz44 | standard | ngps_260623_0098.fits\n"
+            "ordinary | science | ngps_260623_0134.fits\n"
+            "hz44 | science | ngps_260623_0135.fits\n"
+            "mixed | science,standard | ngps_260623_0136.fits\n"
+            "# unknown | science | ngps_260623_0137.fits\ndata end\n"
+        )
+        for directory in (baseline, fallback):
+            for target, exposure in (("hz44", "0098"), ("ordinary", "0134"),
+                                     ("hz44", "0135"), ("mixed", "0136"), ("unknown", "0137")):
+                (directory / f"spec2d_ngps_260623_{exposure}-{target}_NGPS_{channel}_time.fits").touch()
+    frames = module.discover_frames(tmp_path)
+    assert len(frames) == 8
+    assert {frame.exposure for frame in frames} == {"0134", "0135"}
+    # Name alone must not cause a real science frame to be discarded.
+    assert any(frame.target == "hz44" for frame in frames)
+    assert all(".ngps_target_runs" not in frame.spec2d.parts for frame in frames)
+
+
+def test_review_all_stops_if_a_window_process_fails(tmp_path):
+    source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
+    spec = importlib.util.spec_from_file_location("ngps_review_child_failure", source)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    frames = [module.Frame("r", "target", exposure, tmp_path / f"{exposure}.fits")
+              for exposure in ("0134", "0135")]
+    with patch.object(sys, "argv", [str(source), "20260623", "--all"]), \
+         patch.object(module, "discover_frames", return_value=frames), \
+         patch.object(module.subprocess, "run") as child, \
+         patch.object(module, "review_group") as review:
+        child.return_value.returncode = -6
+        assert module.main() == 1
+        assert child.call_count == 1
+        review.assert_not_called()
+
+
+def test_review_saves_after_closing_canvas_and_cancel_preserves_pdf(tmp_path):
+    source = ROOT / "scripts" / "ngps_manual_target_extractions.py"
+    spec = importlib.util.spec_from_file_location("ngps_review_closed_canvas", source)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    callbacks = {}
+
+    class FakeButton:
+        def __init__(self, axis, label, **kwargs):
+            self.ax = axis
+            self.label = label
+
+        def on_clicked(self, callback):
+            callbacks[self.label] = callback
+
+    def accept_then_invalidate_canvas():
+        figure = module.plt.gcf()
+        callbacks["Accept automatic"](None)
+        # Model a native canvas that cannot be used after its window closes.
+        def closed_draw(*args, **kwargs):
+            raise AssertionError("The closed GUI canvas must not render the PDF")
+        figure.canvas.draw = closed_draw
+
+    output = module.audit_path(tmp_path, "target", "0134")
+    with patch.object(module, "Button", FakeButton), \
+         patch.object(module.plt, "show", side_effect=accept_then_invalidate_canvas):
+        assert module.review_group(tmp_path, "target", "0134", {}, True) == ("automatic", {})
+    assert output.read_bytes().startswith(b"%PDF")
+    accepted_pdf = output.read_bytes()
+    with patch.object(module, "Button", FakeButton), \
+         patch.object(module.plt, "show", side_effect=lambda: callbacks["Cancel"](None)):
+        assert module.review_group(tmp_path, "target", "0134", {}, True) == ("cancel", {})
+    assert output.read_bytes() == accepted_pdf
 
 
 def test_target_run_frame_resolves_to_its_baseline_setup():

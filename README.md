@@ -65,6 +65,10 @@ interactive extraction window:
 python scripts/ngps_reduce_all_configs.py "$DATE"
 ```
 
+Review windows open only for science exposures. Standard stars such as hz44
+are reduced for flux calibration but skipped during interactive review.
+Each window runs in a separate process to avoid reusing closed macOS windows.
+
 Use **Accept automatic** when the trace is correct. Otherwise use **Manual
 extraction + refit**, click the desired trace, and choose **Accept manual**.
 The review PDFs are saved in `$NIGHT/ExtractionQA/<target>/`.

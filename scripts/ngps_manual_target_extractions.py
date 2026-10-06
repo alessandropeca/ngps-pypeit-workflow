@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Review NGPS extractions as four-channel, per-exposure dashboards.
 
-The dashboard is a quality-assurance display.  It aligns the three image-slicer
-slits around PypeIt's trace and combines them only for viewing.  It never
+The dashboard is a quality-assurance display of the central image-slicer
+slit, rectified about its geometric centre.  It never
 replaces the detector images or performs a science coadd.
 """
 
@@ -19,6 +19,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.colors import Normalize, SymLogNorm
 from matplotlib.gridspec import GridSpec
 from matplotlib.widgets import Button
@@ -58,6 +59,38 @@ def parse_frame(path: Path) -> Frame | None:
     return Frame(match["channel"], match["target"], match["exposure"], path)
 
 
+def setup_frame_types(setup: Path) -> dict[str, set[str]]:
+    """Read authoritative frame types before the flux inventory exists."""
+    canonical = setup / f"{setup.name}.pypeit"
+    sources = [canonical] if canonical.is_file() else sorted(setup.glob("*.pypeit"))
+    result: dict[str, set[str]] = {}
+    for source in sources:
+        in_data = False
+        columns: list[str] = []
+        for line in source.read_text().splitlines():
+            text = line.strip()
+            if text == "data read":
+                in_data = True
+                columns = []
+                continue
+            if text == "data end":
+                in_data = False
+            if not in_data or not text or text.startswith("#") or "|" not in text:
+                continue
+            parts = [part.strip() for part in text.split("|")]
+            if "filename" in parts and "frametype" in parts:
+                columns = parts
+                continue
+            if not columns or len(parts) != len(columns):
+                continue
+            row = dict(zip(columns, parts))
+            match = re.fullmatch(r"ngps_\d+_(\d{4})\.fits(?:\.gz)?", Path(row["filename"]).name)
+            if match:
+                types = {value.strip().casefold() for value in row["frametype"].split(",")}
+                result.setdefault(match[1], set()).update(types)
+    return result
+
+
 def discover_frames(root: Path) -> list[Frame]:
     """Find baseline reduced frames, falling back to saved target runs.
 
@@ -67,19 +100,44 @@ def discover_frames(root: Path) -> list[Frame]:
     exposure does not exist.
     """
     result: list[Frame] = []
+    classification: dict[Path, dict[str, set[str]]] = {}
+    skipped: set[tuple[str, str]] = set()
+    unknown: set[tuple[str, str]] = set()
+
+    def is_science(frame: Frame) -> bool:
+        setup = base_setup_dir(frame)
+        if setup not in classification:
+            classification[setup] = setup_frame_types(setup)
+        types = classification[setup].get(frame.exposure, set())
+        key = (frame.target, frame.exposure)
+        # Standards also live in PypeIt's Science directory. Never decide
+        # from a target's name or from the output directory alone.
+        if "standard" in types or (types and "science" not in types):
+            skipped.add(key)
+            return False
+        if "science" not in types:
+            unknown.add(key)
+            return False
+        return True
+
     baseline_keys: set[tuple[str, str, str]] = set()
     for path in sorted(root.glob("manual_setup_*/*/Science/spec2d_*.fits")):
         frame = parse_frame(path)
-        if frame is not None:
+        if frame is not None and is_science(frame):
             result.append(frame)
             baseline_keys.add((frame.target.casefold(), frame.channel, frame.exposure))
     for path in sorted(root.glob("manual_setup_*/*/.ngps_target_runs/*/Science/spec2d_*.fits")):
         frame = parse_frame(path)
-        if frame is None:
+        if frame is None or not is_science(frame):
             continue
         key = (frame.target.casefold(), frame.channel, frame.exposure)
         if key not in baseline_keys:
             result.append(frame)
+            baseline_keys.add(key)
+    if skipped:
+        print(f"Skipped {len(skipped)} standard/calibration exposure(s) from extraction review.")
+    for target, exposure in sorted(unknown):
+        print(f"WARNING: skipped {target} {exposure}: no science frame classification in its setup file.")
     return result
 
 
@@ -719,7 +777,9 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     # There is exactly one audit image per target/exposure.  In interactive
     # mode it is written only after the window closes, so the accepted manual
     # bands and live quick-look spectrum replace the earlier automatic review.
-    figure.canvas.draw()
+    # The native GUI canvas has been closed by the acceptance callback.
+    # Render the saved record with Agg, never through that closed canvas.
+    FigureCanvasAgg(figure).draw()
     output = audit_path(root, target, exposure)
     figure.savefig(output)
     plt.close(figure)
@@ -805,7 +865,7 @@ def main() -> int:
              "Accepts multiple values and may be repeated. Excluded products are kept.",
     )
     parser.add_argument("--auto", action="store_true", help="Save PDFs only; do not open review windows")
-    parser.add_argument("--all", action="store_true", help="Review every reduced exposure, except any --exclude values")
+    parser.add_argument("--all", action="store_true", help="Review every reduced science exposure, except any --exclude values")
     args = parser.parse_args()
     if not args.target and not args.all:
         parser.error("provide --target, or use --all")
@@ -835,10 +895,25 @@ def main() -> int:
         print("All matching exposures were excluded. Nothing to review.")
         return 0
     ordered_groups = sorted(groups)
+    if args.auto:
+        plt.switch_backend("Agg")
     for index, group_key in enumerate(ordered_groups, start=1):
         _, exposure = group_key
         group = groups[group_key]
         target = next(iter(group.values())).target
+        if args.all and not args.auto:
+            # Give each macOS window its own process. A closed native canvas
+            # must not leave GUI state behind for the next exposure.
+            command = [sys.executable, str(Path(__file__).resolve()), args.date,
+                       "--target", target, "--exposure", exposure]
+            if args.channel:
+                command.extend(["--channel", args.channel])
+            print(f"\n[{index}/{len(ordered_groups)}] Opening {target} | exposure {exposure}", flush=True)
+            status = subprocess.run(command).returncode
+            if status != 0:
+                print(f"ERROR: review stopped at {target} {exposure} (code {status}).", flush=True)
+                return status if status > 0 else 1
+            continue
         channels = ", ".join(channel.upper() for channel in sorted(group))
         if not args.auto:
             print(f"\nReview: {target} | exposure {exposure} | channels {channels}")

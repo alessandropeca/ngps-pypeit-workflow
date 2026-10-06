@@ -120,6 +120,11 @@ This reduces every valid U/G/R/I channel and instrumental setup, then opens
 one extraction-review window at a time. Re-running replaces existing
 reduction products and refreshes the review PDFs.
 
+Review windows open only for science exposures, identified from the setup's
+PypeIt frame types. Standard stars such as hz44 are reduced for flux
+calibration but skipped during review. Each window runs in a separate
+process to avoid reusing closed macOS windows.
+
 Run this command from `$WORKFLOW_ROOT`, not from `$NIGHT/raw/`.
 
 Do not use `--auto` for the student or full science-review workflow. It skips
