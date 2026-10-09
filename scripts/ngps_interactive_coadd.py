@@ -65,8 +65,9 @@ def slit_and_spat(name: str) -> tuple[int, int] | None:
 def object_metric(hdu) -> float:
     """A stable brightness proxy for choosing a trace within one slit."""
     names = hdu.data.dtype.names or ()
-    flux_name = "OPT_FLAM" if "OPT_FLAM" in names else "OPT_COUNTS"
-    ivar_name = "OPT_FLAM_IVAR" if "OPT_FLAM_IVAR" in names else "OPT_COUNTS_IVAR"
+    prefix = "OPT" if "OPT_WAVE" in names else "BOX"
+    flux_name = f"{prefix}_FLAM" if f"{prefix}_FLAM" in names else f"{prefix}_COUNTS"
+    ivar_name = f"{flux_name}_IVAR"
     flux = np.asarray(hdu.data[flux_name], dtype=float)
     ivar = np.asarray(hdu.data[ivar_name], dtype=float)
     with np.errstate(invalid="ignore"):
@@ -113,12 +114,26 @@ def best_trace_per_slicer(spec1d: Path) -> list[tuple[int, str]]:
     return [(slit_id, item[2]) for slit_id, item in sorted(candidates.items())]
 
 
-def plot_arrays(path: Path, obj_id: str) -> tuple[np.ndarray, np.ndarray]:
+def coadd_extraction(candidates: list[Candidate]) -> str:
+    """Use one genuine extraction type consistently for the whole coadd."""
+    common = {"OPT", "BOX"}
+    for item in candidates:
+        with fits.open(item.spec1d, memmap=False) as hdul:
+            names = hdul[item.obj_id].data.dtype.names or ()
+        common &= {mode for mode in ("OPT", "BOX")
+                   if all(f"{mode}_{suffix}" in names for suffix in ("WAVE", "FLAM", "FLAM_IVAR", "MASK"))}
+    if not candidates or not common:
+        raise ValueError("No common flux-calibrated OPT or BOX extraction. Re-extract/flux-calibrate compatible inputs before coadding.")
+    return "OPT" if "OPT" in common else "BOX"
+
+
+def plot_arrays(path: Path, obj_id: str, extraction: str | None = None) -> tuple[np.ndarray, np.ndarray]:
     with fits.open(path, memmap=False) as hdul:
         data = hdul[obj_id].data
-        wave = np.asarray(data["OPT_WAVE"], dtype=float)
-        flux = np.asarray(data["OPT_FLAM"], dtype=float)
-        mask = np.asarray(data["OPT_MASK"], dtype=bool)
+        mode = extraction or ("OPT" if "OPT_WAVE" in data.dtype.names else "BOX")
+        wave = np.asarray(data[f"{mode}_WAVE"], dtype=float)
+        flux = np.asarray(data[f"{mode}_FLAM"], dtype=float)
+        mask = np.asarray(data[f"{mode}_MASK"], dtype=bool)
     good = np.isfinite(wave) & np.isfinite(flux) & mask
     return wave[good], flux[good]
 
@@ -431,6 +446,9 @@ def review(
     """Review repeat exposures and save the accepted or automatic QA plot."""
     if not candidates:
         return None
+    extraction = coadd_extraction(candidates)
+    if extraction == "BOX":
+        print("Using BOX extraction for every input in this group (includes fixed-aperture spectra).")
     by_exposure: dict[str, list[Candidate]] = {}
     for item in candidates:
         by_exposure.setdefault(item.raw_filename, []).append(item)
@@ -459,7 +477,7 @@ def review(
         colour = f"C{index % 10}"
         panel = axes[index + 1]
         for trace_index, item in enumerate(items):
-            wave, flux = plot_arrays(Path(item.spec1d), item.obj_id)
+            wave, flux = plot_arrays(Path(item.spec1d), item.obj_id, extraction)
             label = exposure_label(exposure) if trace_index == 0 else "_nolegend_"
             line = overlay.plot(
                 wave, flux, color=colour, ls=line_styles[trace_index % 3], lw=0.8, label=label
@@ -538,12 +556,14 @@ def write_coadd_input(out_dir: Path, target: str, channel: str, setup: str,
                       central_slit: int, candidates: list[Candidate]) -> tuple[Path, Path]:
     """Write the selected coadd input and replace a prior selection if requested."""
     stem = f"{safe_name(target)}_{channel}_{safe_name(setup)}"
+    extraction = coadd_extraction(candidates)
     out_dir.mkdir(parents=True, exist_ok=True)
     coadd_file = out_dir / f"{stem}.coadd1d"
     output = out_dir / f"{stem}_coadd.fits"
     coadd_file.write_text(
         "[coadd1d]\n"
-        f"    coaddfile = '{output}'\n\n"
+        f"    coaddfile = '{output}'\n"
+        f"    ex_value = {extraction}\n\n"
         "coadd1d read\n"
         "    filename | obj_id\n"
         + "".join(f"    {item.spec1d} | {item.obj_id}\n" for item in candidates)
@@ -552,6 +572,7 @@ def write_coadd_input(out_dir: Path, target: str, channel: str, setup: str,
     (out_dir / f"{stem}_selection.json").write_text(json.dumps({
         "target": target, "channel": channel, "setup": setup,
         "central_slit_anchor": central_slit,
+        "extraction": extraction,
         "candidates": [asdict(item) for item in candidates],
     }, indent=2) + "\n")
     return coadd_file, output

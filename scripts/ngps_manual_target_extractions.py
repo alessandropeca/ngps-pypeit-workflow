@@ -25,6 +25,11 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.widgets import Button
 from pypeit.core.trace import fit_trace
 
+from ngps_fixed_aperture import (
+    FixedAperture, FixedApertureDialog, default_half_width,
+    extract_fixed_slicers, install_fixed_exposure, pdf_bytes, spatial_pixel_scale,
+)
+
 from ngps_interactive_extract import (
     Selection,
     create_target_copy,
@@ -458,7 +463,7 @@ def base_setup_dir(frame: Frame) -> Path:
     return frame.spec2d.parent.parent
 
 
-def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame], interactive: bool) -> tuple[str, dict[str, float]]:
+def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame], interactive: bool) -> tuple[str, dict[str, float] | FixedAperture]:
     """Save a dashboard.  In interactive mode return the chosen extraction decision."""
     # Fits a typical laptop display at Matplotlib's default 100 dpi while
     # preserving a readable four-channel review layout.
@@ -472,9 +477,13 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     figure.suptitle(f"{target}  |  exposure {exposure}  |  NGPS extraction review", fontsize=15)
     selected: dict[str, float] = {}
     channel_fwhm: dict[str, float] = {}
+    fixed_selection: FixedAperture | None = None
+    fixed_spectra: dict[str, object] = {}
+    dialog: FixedApertureDialog | None = None
     state = {
         "decision": "automatic" if not interactive else "cancel",
         "manual": False,
+        "fixed": False,
         "channel_only": False,
         "focus_channel": None,
         "contrast": 0,
@@ -523,6 +532,9 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
                 trace_offset, trace_rows, color="gold", lw=.85, alpha=.9,
                 label="PypeIt automatic trace" if trace_index == 0 else None,
             )
+        # An off-panel automatic trace must not expand the central-slicer
+        # display to blank detector coordinates beyond the actual image.
+        axis.set_xlim(offsets[0], offsets[-1])
         axis.set_title(f"{channel.upper()}: central slicer", fontsize=9)
         axis.set_xlabel("Offset from central-slicer centre (pixels)", fontsize=8)
         if channel == "u":
@@ -575,13 +587,18 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             frame = frames.get(channel)
             if frame is None:
                 continue
-            spectrum = (manual_quicklook_spectrum(
+            if state["fixed"] and channel in fixed_spectra:
+                objects = fixed_spectra[channel]
+                obj = objects[len(objects) // 2]
+                spectrum = (obj.BOX_WAVE[obj.BOX_MASK], obj.BOX_COUNTS[obj.BOX_MASK])
+            else:
+                spectrum = (manual_quicklook_spectrum(
                             frame, manual_offsets[channel],
                             manual_widths.get(channel, channel_fwhm[channel]) if manual_widths else channel_fwhm[channel],
                             manual_traces.get(channel) if manual_traces else None,
                         )
                         if manual_offsets is not None and channel in manual_offsets
-                        else quicklook_spectrum(frame))
+                            else quicklook_spectrum(frame))
             if spectrum is None:
                 continue
             wave, flux = spectrum
@@ -592,6 +609,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
                     wave[finite_spec], flux[finite_spec], color=COLOURS[channel],
                     lw=.65, label=channel.upper())[0])
         spectrum_axis.set_title(
+            "Fixed-aperture central-slicer spectra" if state["fixed"] and selected else
             "Manual-aperture quick-look spectra"
             if manual_offsets else
             "Quick-look central-slicer 1D spectra"
@@ -626,6 +644,13 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         manual_widths.clear()
         for channel, offset in selected.items():
             axis = axes[channel]
+            if state["fixed"] and fixed_selection is not None:
+                width = fixed_selection.parameters(channel)[1]
+                axis.set_title(f"{channel.upper()}: fixed aperture\ncentre {offset:g}, half-width {width:g} px", fontsize=9)
+                selection_artists.append(axis.axvspan(offset - width, offset + width, color="#22B8CF", alpha=.28))
+                selection_artists.append(axis.axvline(offset, color="#087F8C", lw=1.2))
+                selection_artists.append(profile_axis.axvspan(offset - width, offset + width, color=COLOURS[channel], alpha=.14))
+                continue
             automatic_width = channel_fwhm[channel]
             trial_trace = refit_central_trace(frames[channel], offset, automatic_width)
             if trial_trace is not None:
@@ -644,17 +669,47 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             selection_artists.append(profile_axis.axvspan(offset - width / 2, offset + width / 2, color=COLOURS[channel], alpha=.14))
             selection_artists.append(profile_axis.axvline(offset, color=COLOURS[channel], lw=.9, alpha=.9))
         profile_axis.set_title(
+            "Central-slice profiles\nfixed apertures" if state["fixed"] and selected else
             "Central-slice profiles\nmanual apertures" if selected
             else "Central-slice spatial profiles\none colour per channel"
         )
         redraw_spectra(
-            selected if selected else None,
+            selected if selected and not state["fixed"] else None,
             manual_traces if selected else None,
             manual_widths if selected else None,
         )
         figure.canvas.draw_idle()
 
     def click(event) -> None:
+        nonlocal dialog
+        if dialog is not None:
+            return
+        if state["fixed"] and event.inaxes in axes.values() and event.xdata is not None:
+            channel = next(name for name, axis in axes.items() if axis is event.inaxes)
+            if channel not in frames:
+                return
+            def apply(selection):
+                nonlocal fixed_selection
+                selection.reference_channel = channel
+                selection.pixel_scales = {c: spatial_pixel_scale(frame.spec2d) for c, frame in frames.items()}
+                selection.validate()
+                # Preview and final extraction use the identical masked sum.
+                spectra = {c: extract_fixed_slicers(frames[c].spec2d, *selection.parameters(c))
+                           for c in selection.channels}
+                fixed_selection = selection
+                fixed_spectra.clear()
+                fixed_spectra.update(spectra)
+                selected.clear()
+                selected.update({c: selection.parameters(c)[0] for c in selection.channels})
+                redraw_selections()
+            def closed():
+                nonlocal dialog
+                dialog = None
+            dialog = FixedApertureDialog(
+                figure, float(event.xdata), default_half_width(frames[channel].spec2d),
+                [c for c in CHANNELS if c in frames], apply, closed,
+            )
+            return
         if not state["manual"] or event.inaxes not in axes.values() or event.xdata is None:
             return
         channel = next(name for name, axis in axes.items() if axis is event.inaxes)
@@ -664,23 +719,41 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         redraw_selections()
 
     def accept_auto(event) -> None:
+        if dialog is not None:
+            return
+        return_to_automatic(event)
         state["decision"] = "automatic"
         print("Automatic extraction accepted. Closing review window and starting re-extraction...", flush=True)
         plt.close(figure)
 
     def begin_manual(event) -> None:
+        if dialog is not None:
+            return
+        if state["fixed"]:
+            return_to_automatic(event)
         state["manual"] = True
         state["channel_only"] = False
         print("Click any channel panel. The same slicer-relative position will be refitted in U, G, R, and I.")
 
     def adjust_this_channel(event) -> None:
+        if dialog is not None:
+            return
+        if state["fixed"]:
+            return_to_automatic(event)
         state["manual"] = True
         state["channel_only"] = True
         print("Click a channel panel to refit only that channel. The other channels remain unchanged.")
 
     def return_to_automatic(event) -> None:
+        if dialog is not None:
+            return
         state["manual"] = False
         state["channel_only"] = False
+        state["fixed"] = False
+        fixed_spectra.clear()
+        for channel, axis in axes.items():
+            if channel in frames:
+                axis.set_title(f"{channel.upper()}: central slicer", fontsize=9)
         state["focus_channel"] = None
         selected.clear()
         redraw_selections()
@@ -688,7 +761,7 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     def renormalise(channel: str) -> None:
         state["focus_channel"] = channel
         redraw_spectra(
-            selected if selected else None,
+            selected if selected and not state["fixed"] else None,
             manual_traces if selected else None,
             manual_widths if selected else None,
         )
@@ -711,11 +784,29 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         redraw_images()
 
     def accept_manual(event) -> None:
+        if dialog is not None or state["fixed"]:
+            print("Use Accept fixed aperture for a fixed selection.")
+            return
         if not selected:
             print("Choose a position in a channel panel before accepting manual extraction.")
             return
         state["decision"] = "manual"
         print("Manual extraction accepted. Closing review window and starting re-extraction...", flush=True)
+        plt.close(figure)
+
+    def begin_fixed(event) -> None:
+        if dialog is not None:
+            return
+        return_to_automatic(event)
+        state["fixed"] = True
+        print("Fixed aperture: click the source once. Then choose half-width and channels. No trace will be fitted.", flush=True)
+
+    def accept_fixed(event) -> None:
+        if dialog is not None or not state["fixed"] or fixed_selection is None or not selected:
+            print("Click Fixed aperture, select a source, and confirm its band before accepting.")
+            return
+        state["decision"] = "fixed"
+        print("Fixed aperture accepted. Closing the window and saving selected channels...", flush=True)
         plt.close(figure)
 
     def cancel(event) -> None:
@@ -738,13 +829,15 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         button_specs = [
             ("Accept automatic", accept_auto, "#D7F2DF", "#BCE8CA"),
             ("Manual extraction + refit", begin_manual, "#D7E9FF", "#BCD8F5"),
+            ("Fixed aperture", begin_fixed, "#C5F6FA", "#99E9F2"),
             ("Adjust this channel only", adjust_this_channel, "#D7F4F2", "#B8E8E4"),
             ("Return to automatic", return_to_automatic, "#E8E1FF", "#D3C9F2"),
             ("Accept manual", accept_manual, "#FFE6B3", "#F5D296"),
+            ("Accept fixed aperture", accept_fixed, "#C5F6FA", "#99E9F2"),
             ("Cancel", cancel, "#FFD9D9", "#F2BFBF"),
         ]
         for index, (label, callback, colour, hover_colour) in enumerate(button_specs):
-            button_axis = figure.add_axes((.835, .16 + (.048 * (5 - index)), .135, .037))
+            button_axis = figure.add_axes((.835, .16 + (.033 * (len(button_specs) - 1 - index)), .135, .029))
             button = Button(button_axis, label, color=colour, hovercolor=hover_colour)
             button.on_clicked(callback)
             button_widgets.append(button)
@@ -756,6 +849,9 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
             button_widgets.append(button)
     figure.canvas.mpl_connect("button_press_event", click)
     figure.subplots_adjust(left=.045, right=.985, bottom=.09, top=.86, wspace=.22, hspace=.36)
+    profile_position = profile_axis.get_position()
+    profile_axis.set_position((profile_position.x0, profile_position.y0 + .04,
+                               profile_position.width, profile_position.height - .04))
     if interactive:
         plt.show()
         # Cancel (including closing the window) is deliberately a true no-op:
@@ -767,7 +863,13 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
         # saving the accepted result as an uncluttered scientific record.
         for button in button_widgets:
             button.ax.remove()
-        if state["decision"] in {"automatic", "manual"}:
+        if state["decision"] == "fixed" and fixed_selection is not None:
+            add_final_mode_label("FIXED APERTURE")
+            figure.text(.9025, .35,
+                        f"Reference: {fixed_selection.reference_channel.upper()}\nCentre: {fixed_selection.offset:g} px\nHalf-width: {fixed_selection.half_width:g} px\n"
+                        f"Channels: {', '.join(c.upper() for c in fixed_selection.channels)}\nAll three slicers per channel",
+                        ha="center", fontsize=9)
+        elif state["decision"] in {"automatic", "manual"}:
             add_final_mode_label(
                 "MANUAL MODE" if state["decision"] == "manual" else "AUTO MODE"
             )
@@ -780,6 +882,10 @@ def review_group(root: Path, target: str, exposure: str, frames: dict[str, Frame
     # The native GUI canvas has been closed by the acceptance callback.
     # Render the saved record with Agg, never through that closed canvas.
     FigureCanvasAgg(figure).draw()
+    if state["decision"] == "fixed" and fixed_selection is not None:
+        fixed_selection.qa_pdf = pdf_bytes(figure)
+        plt.close(figure)
+        return "fixed", fixed_selection
     output = audit_path(root, target, exposure)
     figure.savefig(output)
     plt.close(figure)
@@ -919,7 +1025,18 @@ def main() -> int:
             print(f"\nReview: {target} | exposure {exposure} | channels {channels}")
         decision, offsets = review_group(root, target, exposure, group, not args.auto)
         pdf = audit_path(root, target, exposure)
-        if decision == "manual":
+        if decision == "fixed":
+            try:
+                paths = {c: (frame.spec2d, base_setup_dir(frame)) for c, frame in group.items()}
+                install_fixed_exposure(root, target, exposure, paths, offsets, pdf)
+            except (OSError, ValueError, RuntimeError) as error:
+                print(f"ERROR: fixed-aperture extraction was not installed: {error}", flush=True)
+                return 1
+            print(f"Fixed-aperture spectra saved for {', '.join(c.upper() for c in offsets.channels)}.", flush=True)
+            print(f"Saved review PDF: {pdf}", flush=True)
+            print("Selected spec1d products replaced. Spec2d and unchecked channels kept. Old selected Fluxed copies removed.", flush=True)
+            print("Re-run flux calibration and coaddition before using final spectra.", flush=True)
+        elif decision == "manual":
             print(f"Saved review PDF: {pdf}")
             # The dashboard PDF above has already replaced the automatic PDF.
             # Manual detector products are rebuilt for this exposure only.

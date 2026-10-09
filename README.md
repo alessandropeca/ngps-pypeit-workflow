@@ -73,6 +73,24 @@ Use **Accept automatic** when the trace is correct. Otherwise use **Manual
 extraction + refit**, click the desired trace, and choose **Accept manual**.
 The review PDFs are saved in `$NIGHT/ExtractionQA/<target>/`.
 
+For a faint companion, choose **Fixed aperture**, click its centre once, and
+enter the aperture **half-width in pixels** in the popup. Tick the channels
+to use and click **Extract** to preview the vertical band and counts spectrum.
+Then click **Accept fixed aperture** to save it. The position is relative to
+each slicer's geometric centre, not a shared detector pixel. The same band
+is used at every wavelength in all three slicers of each selected channel.
+Offsets and widths account for each channel's spatial binning and pixel scale.
+No source trace or width is fitted in this mode.
+
+Fixed mode replaces only the selected channels' 1D spectra, keeps the 2D data
+and unchecked channels, and removes stale selected flux-calibrated copies.
+Cancel or close makes no changes. Re-run flux calibration and coaddition
+after accepting. Aperture settings are saved beside the review PDF as
+`ngps_fixed_aperture_0121.json`. Fixed spectra use BOX extraction. A coadd
+containing fixed spectra uses BOX for every input, rather than mixing BOX and
+optimal spectra. Masked or edge-truncated aperture rows are flagged invalid.
+Use the same source and compatible apertures across exposures you plan to coadd.
+
 Example extraction-review window:
 
 ![Extraction review: four central-slicer 2D panels, spatial profiles, and quick-look spectra](docs/images/extraction-review-example.png)

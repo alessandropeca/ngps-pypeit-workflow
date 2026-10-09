@@ -156,6 +156,12 @@ If the automatic trace follows the desired source, click **Accept automatic**.
 If it does not, click **Manual extraction + refit**, select the desired trace
 in the 2D panel, and then click **Accept manual**.
 
+For a faint companion that must not follow the bright object's trace, use
+**Fixed aperture** instead. Click its centre once. In the popup, edit the
+**half-width in pixels**, choose the channels, and click **Extract** to
+preview. Then choose **Accept fixed aperture** to save. The default half-width
+is the existing central-slicer boxcar radius, or 4 pixels if unavailable.
+
 5. **Re-open one exposure for another review**
 
 ---
@@ -199,6 +205,32 @@ Adjust this channel only
 Click a channel to refit only that channel and its three slicers. The
 remaining channels retain their previous extracted products.
 
+Fixed aperture
+Click once, set the half-width, and tick U/G/R/I as needed in the popup.
+The centre is a slicer-relative offset propagated to every selected channel
+and its three slicers. The shaded vertical band stays fixed in the displayed
+rectified coordinates. It uses geometric slit centres, not a borrowed source
+trace, and performs no trace or profile fit.
+The half-width is entered in the clicked channel's pixels. Linked offsets and
+widths are scaled for the other channels' spatial binning and pixel scale.
+
+Accept fixed aperture
+Save the exact previewed sky-subtracted boxcar sums with propagated variance
+and masks. Only selected channels' spec1d/text products are replaced.
+The spec2d data and unchecked channels remain unchanged. The PDF records the
+centre, half-width, selected channels and counts spectrum. A matching
+`ngps_fixed_aperture_<exposure>.json` records the settings. A masked pixel or
+edge-truncated aperture makes that 1D row invalid, not an artificially low
+valid flux. Partial sums are retained only as flagged diagnostics.
+
+Fixed mode uses the existing sky model and does not redo sky subtraction.
+Inspect residuals and contamination before accepting. It measures flux inside
+the chosen band, without an aperture-loss correction. Coadds containing fixed
+spectra use BOX extraction for all their inputs.
+Choose the same physical source and compatible apertures in every repeat
+exposure before coadding. Switching extraction types does not ensure that an
+older automatic spectrum belongs to the faint companion.
+
 Return to automatic
 Remove manual choices and restore the automatic display.
 
@@ -208,7 +240,7 @@ Rerun and replace only the selected exposure/channel products.
 Cancel, or close the window
 Make no changes to products or the existing review PDF.
 
-After accepting automatic or manual extraction, wait for the terminal to say
+After accepting automatic, manual or fixed extraction, wait for the terminal to say
 that the re-extraction has finished. If the exposure was already flux
 calibrated, repeat steps 6–12 before using it in a coadd.
 
@@ -335,7 +367,7 @@ Final PDF and PNG files are saved in:
 
 The final plot uses telluric-corrected R/I products when available. It keeps
 the four channels separate and does not merge them into a single spectrum.
-The grey curve is native sampling; the coloured curve is a display-only
+The grey curve is native sampling. The coloured curve is a display-only
 inverse-variance rebin of two pixels. Neither changes the FITS data.
 
 12. **Deliverable files**
